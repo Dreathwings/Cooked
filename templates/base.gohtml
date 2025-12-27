@@ -1,0 +1,251 @@
+{{define "base"}}
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cooked – Recettes hfresh</title>
+    <style>
+        :root {
+            --hfresh-green: #44b15a;
+            --hfresh-dark: #16302b;
+            --hfresh-light: #f6f7f2;
+            --hfresh-border: #e2e4dc;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: "Inter", "Helvetica", Arial, sans-serif;
+            background: var(--hfresh-light);
+            color: var(--hfresh-dark);
+        }
+        header {
+            background: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 1px solid var(--hfresh-border);
+        }
+        nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        nav .brand {
+            font-weight: 800;
+            letter-spacing: -0.04em;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+        nav .brand span.logo {
+            background: var(--hfresh-green);
+            color: white;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: grid;
+            place-items: center;
+            font-weight: 900;
+        }
+        nav a {
+            color: var(--hfresh-dark);
+            text-decoration: none;
+            font-weight: 600;
+            padding: 0.6rem 0.9rem;
+            border-radius: 999px;
+        }
+        nav a:hover, nav a.active {
+            background: #e8f5eb;
+            color: var(--hfresh-dark);
+        }
+        .actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .btn {
+            border: none;
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 120ms ease, box-shadow 120ms ease;
+            background: var(--hfresh-green);
+            color: white;
+            box-shadow: 0 10px 30px rgba(68, 177, 90, 0.25);
+        }
+        .btn.secondary {
+            background: white;
+            color: var(--hfresh-dark);
+            border: 1px solid var(--hfresh-border);
+            box-shadow: none;
+        }
+        .btn:hover { transform: translateY(-1px); }
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 1.1rem;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid var(--hfresh-border);
+            display: flex;
+            flex-direction: column;
+            min-height: 340px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.05);
+        }
+        .card .thumb {
+            height: 170px;
+            background-size: cover;
+            background-position: center;
+        }
+        .card .body {
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            flex: 1;
+        }
+        .chip {
+            display: inline-flex;
+            padding: 0.3rem 0.7rem;
+            background: #e8f5eb;
+            color: var(--hfresh-dark);
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .muted { color: #5f6b63; }
+        form.inline { display: inline; }
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0.8rem;
+            align-items: end;
+            margin-bottom: 1rem;
+        }
+        label { font-weight: 700; font-size: 0.95rem; color: #2f3d36; }
+        input[type="text"], select, input[type="number"] {
+            width: 100%;
+            padding: 0.65rem 0.8rem;
+            border-radius: 10px;
+            border: 1px solid var(--hfresh-border);
+            font-size: 1rem;
+            background: white;
+        }
+        .title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+        .title-row h1, .title-row h2 { margin: 0; }
+        .hero {
+            background: linear-gradient(120deg, #e8f5eb, #f8fff7);
+            border-radius: 18px;
+            padding: 1.2rem 1.5rem;
+            border: 1px solid var(--hfresh-border);
+            margin-bottom: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+        .badge {
+            display: inline-flex;
+            padding: 0.3rem 0.65rem;
+            background: #16302b;
+            color: white;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+        .section {
+            background: white;
+            border-radius: 16px;
+            border: 1px solid var(--hfresh-border);
+            padding: 1.1rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.04);
+        }
+        .steps { counter-reset: step; display: grid; gap: 0.75rem; }
+        .steps li { list-style: none; position: relative; padding-left: 2.5rem; }
+        .steps li::before {
+            counter-increment: step;
+            content: counter(step);
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 32px;
+            height: 32px;
+            background: var(--hfresh-green);
+            color: white;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            font-weight: 800;
+        }
+        .ingredients { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.6rem; }
+        .pill {
+            background: #f0f2ed;
+            border-radius: 10px;
+            padding: 0.5rem 0.8rem;
+            font-weight: 600;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .table th, .table td {
+            padding: 0.7rem 0.5rem;
+            border-bottom: 1px solid var(--hfresh-border);
+            text-align: left;
+        }
+        .empty {
+            text-align: center;
+            padding: 2rem;
+            color: #6c7a72;
+        }
+        @media (max-width: 640px) {
+            nav { flex-wrap: wrap; }
+            .hero { flex-direction: column; align-items: flex-start; }
+            .filters { grid-template-columns: 1fr; }
+            .title-row { flex-direction: column; align-items: flex-start; }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <nav>
+        <div class="brand">
+            <span class="logo">H</span> Cooked x hfresh
+        </div>
+        <div class="actions">
+            <a href="/recettes" class="{{if eq .Active "recettes"}}active{{end}}">Toutes les recettes</a>
+            <a href="/semaine" class="{{if eq .Active "semaine"}}active{{end}}">Cette semaine</a>
+            <a href="/courses" class="{{if eq .Active "courses"}}active{{end}}">Liste de course</a>
+        </div>
+        <form action="/refresh" method="post">
+            <button class="btn secondary" type="submit">Actualiser</button>
+        </form>
+    </nav>
+</header>
+<main>
+    {{template "content" .}}
+</main>
+</body>
+</html>
+{{end}}
