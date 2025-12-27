@@ -1,0 +1,802 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"embed"
+	"encoding/json"
+	"encoding/xml"
+	"fmt"
+	"html/template"
+	"log"
+	"math"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+//go:embed templates/*.gohtml
+var templateFS embed.FS
+
+type Recipe struct {
+	ID          string
+	Title       string
+	Description string
+	ImageURL    string
+	SourceURL   string
+	PrepTime    string
+	CookTime    string
+	TotalTime   string
+	Difficulty  string
+	Cuisine     string
+	Tags        []string
+	Ingredients []Ingredient
+	Steps       []string
+	Servings    int
+	Weekly      bool
+}
+
+type Ingredient struct {
+	Name     string
+	Quantity string
+}
+
+type ShoppingEntry struct {
+	RecipeID    string
+	Title       string
+	Servings    int
+	Ingredients []Ingredient
+}
+
+type App struct {
+	mu          sync.RWMutex
+	recipes     []Recipe
+	shopping    map[string]ShoppingEntry
+	lastUpdated time.Time
+	scraper     *Scraper
+	templates   *template.Template
+}
+
+func main() {
+	ctx := context.Background()
+	app := NewApp()
+
+	if err := app.Refresh(ctx); err != nil {
+		log.Printf("Impossible de récupérer les données en ligne, utilisation des recettes intégrées : %v", err)
+	}
+
+	server := &http.Server{
+		Addr:         ":3044",
+		Handler:      app.routes(),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 20 * time.Second,
+	}
+
+	log.Printf("Serveur disponible sur http://localhost%s", server.Addr)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("Échec du serveur : %v", err)
+	}
+}
+
+func NewApp() *App {
+	tmpl := template.Must(template.ParseFS(templateFS, "templates/*.gohtml"))
+	return &App{
+		shopping:  make(map[string]ShoppingEntry),
+		scraper:   NewScraper("https://hfresh.info/fr-FR"),
+		templates: tmpl,
+	}
+}
+
+func (a *App) routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", a.redirectHome)
+	mux.HandleFunc("/recettes", a.recipesHandler)
+	mux.HandleFunc("/recettes/", a.recipeDetailHandler)
+	mux.HandleFunc("/semaine", a.weeklyHandler)
+	mux.HandleFunc("/courses", a.shoppingHandler)
+	mux.HandleFunc("/courses/ajouter", a.addToShoppingHandler)
+	mux.HandleFunc("/courses/mettre-a-jour", a.updateShoppingHandler)
+	mux.HandleFunc("/courses/supprimer", a.removeShoppingHandler)
+	mux.HandleFunc("/refresh", a.refreshHandler)
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	return logRequests(mux)
+}
+
+func (a *App) redirectHome(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/recettes", http.StatusFound)
+}
+
+func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	filtered := filterRecipes(a.recipes, r.URL.Query())
+	data := map[string]any{
+		"Recipes":     filtered,
+		"Query":       r.URL.Query().Get("q"),
+		"Diet":        r.URL.Query().Get("diet"),
+		"Difficulty":  r.URL.Query().Get("difficulty"),
+		"Tag":         r.URL.Query().Get("tag"),
+		"LastUpdated": a.lastUpdated,
+		"Count":       len(filtered),
+		"AllCount":    len(a.recipes),
+		"Active":      "recettes",
+	}
+	a.render(w, "recipes.gohtml", data)
+}
+
+func (a *App) weeklyHandler(w http.ResponseWriter, r *http.Request) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	var weekly []Recipe
+	for _, recipe := range a.recipes {
+		if recipe.Weekly {
+			weekly = append(weekly, recipe)
+		}
+	}
+	data := map[string]any{
+		"Recipes":     weekly,
+		"LastUpdated": a.lastUpdated,
+		"Count":       len(weekly),
+		"Active":      "semaine",
+	}
+	a.render(w, "weekly.gohtml", data)
+}
+
+func (a *App) recipeDetailHandler(w http.ResponseWriter, r *http.Request) {
+	if !strings.HasPrefix(r.URL.Path, "/recettes/") {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/recettes/")
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	for _, recipe := range a.recipes {
+		if recipe.ID == id {
+			data := map[string]any{
+				"Recipe":      recipe,
+				"LastUpdated": a.lastUpdated,
+				"Active":      "recettes",
+			}
+			a.render(w, "detail.gohtml", data)
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
+func (a *App) shoppingHandler(w http.ResponseWriter, r *http.Request) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	var entries []ShoppingEntry
+	for _, entry := range a.shopping {
+		entries = append(entries, entry)
+	}
+	data := map[string]any{
+		"Entries": entries,
+		"Active":  "courses",
+	}
+	a.render(w, "shopping.gohtml", data)
+}
+
+func (a *App) addToShoppingHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/courses", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Formulaire invalide", http.StatusBadRequest)
+		return
+	}
+	recipeID := r.FormValue("recipe_id")
+	servings, _ := strconv.Atoi(r.FormValue("servings"))
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, recipe := range a.recipes {
+		if recipe.ID == recipeID {
+			entry := ShoppingEntry{
+				RecipeID:    recipe.ID,
+				Title:       recipe.Title,
+				Servings:    servings,
+				Ingredients: scaleIngredients(recipe.Ingredients, recipe.Servings, servings),
+			}
+			a.shopping[recipe.ID] = entry
+			break
+		}
+	}
+	http.Redirect(w, r, "/courses", http.StatusSeeOther)
+}
+
+func (a *App) updateShoppingHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/courses", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Formulaire invalide", http.StatusBadRequest)
+		return
+	}
+	recipeID := r.FormValue("recipe_id")
+	servings, _ := strconv.Atoi(r.FormValue("servings"))
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, recipe := range a.recipes {
+		if recipe.ID == recipeID {
+			entry, exists := a.shopping[recipeID]
+			if exists {
+				entry.Servings = servings
+				entry.Ingredients = scaleIngredients(recipe.Ingredients, recipe.Servings, servings)
+				a.shopping[recipeID] = entry
+			}
+			break
+		}
+	}
+	http.Redirect(w, r, "/courses", http.StatusSeeOther)
+}
+
+func (a *App) removeShoppingHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/courses", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Formulaire invalide", http.StatusBadRequest)
+		return
+	}
+	recipeID := r.FormValue("recipe_id")
+	a.mu.Lock()
+	delete(a.shopping, recipeID)
+	a.mu.Unlock()
+	http.Redirect(w, r, "/courses", http.StatusSeeOther)
+}
+
+func (a *App) refreshHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/recettes", http.StatusSeeOther)
+		return
+	}
+	if err := a.Refresh(r.Context()); err != nil {
+		log.Printf("Actualisation échouée : %v", err)
+		http.Redirect(w, r, "/recettes?erreur=refresh", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/recettes", http.StatusSeeOther)
+}
+
+func (a *App) Refresh(ctx context.Context) error {
+	recipes, err := a.scraper.FetchAll(ctx)
+	if err != nil || len(recipes) == 0 {
+		recipes = builtinRecipes()
+		err = fmt.Errorf("retombé sur les recettes intégrées : %w", err)
+	}
+	a.mu.Lock()
+	a.recipes = recipes
+	a.lastUpdated = time.Now()
+	a.mu.Unlock()
+	return err
+}
+
+func (a *App) render(w http.ResponseWriter, name string, data map[string]any) {
+	var buf bytes.Buffer
+	if err := a.templates.ExecuteTemplate(&buf, name, data); err != nil {
+		http.Error(w, "Erreur de rendu", http.StatusInternalServerError)
+		log.Printf("erreur template %s : %v", name, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := buf.WriteTo(w); err != nil {
+		log.Printf("erreur d'écriture : %v", err)
+	}
+}
+
+func filterRecipes(recipes []Recipe, params url.Values) []Recipe {
+	query := strings.ToLower(strings.TrimSpace(params.Get("q")))
+	diet := strings.ToLower(strings.TrimSpace(params.Get("diet")))
+	diff := strings.ToLower(strings.TrimSpace(params.Get("difficulty")))
+	tag := strings.ToLower(strings.TrimSpace(params.Get("tag")))
+
+	var filtered []Recipe
+	for _, recipe := range recipes {
+		if query != "" && !strings.Contains(strings.ToLower(recipe.Title), query) && !strings.Contains(strings.ToLower(recipe.Description), query) {
+			continue
+		}
+		if diet != "" && !containsFold(recipe.Tags, diet) {
+			continue
+		}
+		if diff != "" && !strings.EqualFold(recipe.Difficulty, diff) {
+			continue
+		}
+		if tag != "" && !containsFold(recipe.Tags, tag) {
+			continue
+		}
+		filtered = append(filtered, recipe)
+	}
+	return filtered
+}
+
+func containsFold(list []string, q string) bool {
+	for _, v := range list {
+		if strings.Contains(strings.ToLower(v), q) {
+			return true
+		}
+	}
+	return false
+}
+
+func logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s (%s)", r.Method, r.URL.Path, time.Since(start).Round(time.Millisecond))
+	})
+}
+
+// Scraper logic
+
+type Scraper struct {
+	baseURL string
+	client  *http.Client
+}
+
+func NewScraper(baseURL string) *Scraper {
+	return &Scraper{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+		},
+	}
+}
+
+func (s *Scraper) FetchAll(ctx context.Context) ([]Recipe, error) {
+	urls, err := s.gatherRecipeURLs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var recipes []Recipe
+	for _, u := range urls {
+		recipe, err := s.scrapeRecipe(ctx, u)
+		if err != nil {
+			log.Printf("erreur de scraping %s : %v", u, err)
+			continue
+		}
+		if recipe.ID == "" {
+			recipe.ID = urlToID(u)
+		}
+		if recipe.SourceURL == "" {
+			recipe.SourceURL = u
+		}
+		recipes = append(recipes, recipe)
+		if len(recipes) >= 48 {
+			break
+		}
+	}
+	recipes = markWeekly(recipes)
+	return recipes, nil
+}
+
+func (s *Scraper) gatherRecipeURLs(ctx context.Context) ([]string, error) {
+	sitemapURL := s.baseURL + "/sitemap.xml"
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, sitemapURL, nil)
+	resp, err := s.client.Do(req)
+	if err == nil && resp.StatusCode == http.StatusOK {
+		defer resp.Body.Close()
+		type loc struct {
+			Loc string `xml:"loc"`
+		}
+		type urlset struct {
+			URLs []loc `xml:"url"`
+		}
+		var sm urlset
+		if err := xml.NewDecoder(resp.Body).Decode(&sm); err == nil {
+			var urls []string
+			for _, u := range sm.URLs {
+				if strings.Contains(u.Loc, "/recipes") || strings.Contains(u.Loc, "/recettes") {
+					urls = append(urls, u.Loc)
+				}
+			}
+			if len(urls) > 0 {
+				return urls, nil
+			}
+		}
+	}
+	if resp != nil {
+		resp.Body.Close()
+	}
+
+	// Fallback: fetch home page and extract recipe links.
+	homeReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL, nil)
+	homeResp, err := s.client.Do(homeReq)
+	if err != nil {
+		return nil, err
+	}
+	defer homeResp.Body.Close()
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(homeResp.Body); err != nil {
+		return nil, err
+	}
+	body := buf.String()
+	return extractRecipeLinks(body, s.baseURL), nil
+}
+
+func (s *Scraper) scrapeRecipe(ctx context.Context, recipeURL string) (Recipe, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, recipeURL, nil)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return Recipe{}, err
+	}
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		return Recipe{}, err
+	}
+	body := buf.String()
+	if recipe, ok := parseJSONLDRecipe(body); ok {
+		recipe.SourceURL = recipeURL
+		return recipe, nil
+	}
+	return Recipe{}, fmt.Errorf("aucune donnée Recipe détectée")
+}
+
+func extractRecipeLinks(body, base string) []string {
+	var links []string
+	re := regexp.MustCompile(`href="([^"]+)"`)
+	matches := re.FindAllStringSubmatch(body, -1)
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		link := m[1]
+		lower := strings.ToLower(link)
+		if strings.Contains(lower, "/recettes/") || strings.Contains(lower, "/recipes/") {
+			if strings.HasPrefix(link, "http") {
+				links = append(links, link)
+			} else if strings.HasPrefix(link, "/") {
+				links = append(links, base+link)
+			}
+		}
+	}
+	return uniqueStrings(links)
+}
+
+func parseJSONLDRecipe(body string) (Recipe, bool) {
+	scripts := findJSONLDBlocks(body)
+	for _, block := range scripts {
+		var payload any
+		if err := json.Unmarshal([]byte(block), &payload); err != nil {
+			continue
+		}
+		switch data := payload.(type) {
+		case map[string]any:
+			if recipe, ok := decodeRecipeMap(data); ok {
+				return recipe, true
+			}
+		case []any:
+			for _, item := range data {
+				if m, ok := item.(map[string]any); ok {
+					if recipe, ok := decodeRecipeMap(m); ok {
+						return recipe, true
+					}
+				}
+			}
+		}
+	}
+	return Recipe{}, false
+}
+
+func findJSONLDBlocks(body string) []string {
+	re := regexp.MustCompile(`(?is)<script[^>]*type=["']application/ld\+json["'][^>]*>(.*?)</script>`)
+	matches := re.FindAllStringSubmatch(body, -1)
+	var blocks []string
+	for _, match := range matches {
+		if len(match) > 1 {
+			blocks = append(blocks, strings.TrimSpace(match[1]))
+		}
+	}
+	return blocks
+}
+
+func decodeRecipeMap(m map[string]any) (Recipe, bool) {
+	var types []string
+	switch t := m["@type"].(type) {
+	case string:
+		types = []string{t}
+	case []any:
+		for _, v := range t {
+			if s, ok := v.(string); ok {
+				types = append(types, s)
+			}
+		}
+	}
+	isRecipe := false
+	for _, t := range types {
+		if strings.EqualFold(t, "Recipe") {
+			isRecipe = true
+			break
+		}
+	}
+	if !isRecipe {
+		return Recipe{}, false
+	}
+
+	recipe := Recipe{
+		Title:       stringValue(m["name"]),
+		Description: stringValue(m["description"]),
+		ImageURL:    firstString(m["image"]),
+		PrepTime:    stringValue(m["prepTime"]),
+		CookTime:    stringValue(m["cookTime"]),
+		TotalTime:   stringValue(m["totalTime"]),
+		Difficulty:  stringValue(m["recipeCategory"]),
+		Cuisine:     stringValue(m["recipeCuisine"]),
+		Servings:    parseServings(m["recipeYield"]),
+		Tags:        splitKeywords(stringValue(m["keywords"])),
+		Ingredients: parseIngredients(m["recipeIngredient"]),
+		Steps:       parseInstructions(m["recipeInstructions"]),
+	}
+
+	if recipe.ID == "" {
+		recipe.ID = urlToID(stringValue(m["url"]))
+	}
+	return recipe, true
+}
+
+func stringValue(v any) string {
+	if v == nil {
+		return ""
+	}
+	switch val := v.(type) {
+	case string:
+		return val
+	case fmt.Stringer:
+		return val.String()
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func firstString(v any) string {
+	switch val := v.(type) {
+	case string:
+		return val
+	case []any:
+		for _, item := range val {
+			if s, ok := item.(string); ok {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func parseIngredients(v any) []Ingredient {
+	var ingredients []Ingredient
+	switch val := v.(type) {
+	case []any:
+		for _, item := range val {
+			if s, ok := item.(string); ok {
+				ingredients = append(ingredients, Ingredient{Name: s})
+			}
+		}
+	case []string:
+		for _, s := range val {
+			ingredients = append(ingredients, Ingredient{Name: s})
+		}
+	}
+	return ingredients
+}
+
+func parseInstructions(v any) []string {
+	var steps []string
+	switch val := v.(type) {
+	case []any:
+		for _, item := range val {
+			switch inst := item.(type) {
+			case string:
+				steps = append(steps, inst)
+			case map[string]any:
+				if txt := stringValue(inst["text"]); txt != "" {
+					steps = append(steps, txt)
+				}
+			}
+		}
+	case string:
+		parts := strings.Split(val, ".")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				steps = append(steps, p)
+			}
+		}
+	}
+	return steps
+}
+
+func parseServings(v any) int {
+	switch val := v.(type) {
+	case string:
+		if n, err := strconv.Atoi(strings.Fields(val)[0]); err == nil {
+			return n
+		}
+	case float64:
+		return int(val)
+	}
+	return 2
+}
+
+func splitKeywords(input string) []string {
+	if input == "" {
+		return nil
+	}
+	var tags []string
+	for _, t := range strings.FieldsFunc(input, func(r rune) bool { return r == ',' || r == ';' }) {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			tags = append(tags, t)
+		}
+	}
+	return tags
+}
+
+func urlToID(u string) string {
+	u = strings.TrimSuffix(u, "/")
+	parts := strings.Split(u, "/")
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[len(parts)-1]
+}
+
+func uniqueStrings(in []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, v := range in {
+		if _, ok := seen[v]; !ok {
+			seen[v] = struct{}{}
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func markWeekly(recipes []Recipe) []Recipe {
+	for i := range recipes {
+		if i < 8 {
+			recipes[i].Weekly = true
+		}
+	}
+	return recipes
+}
+
+func scaleIngredients(ingredients []Ingredient, baseServings, requested int) []Ingredient {
+	if baseServings == 0 || requested == 0 {
+		return ingredients
+	}
+	scale := float64(requested) / float64(baseServings)
+	scaled := make([]Ingredient, len(ingredients))
+	for i, ing := range ingredients {
+		scaled[i] = Ingredient{
+			Name:     ing.Name,
+			Quantity: scaleQuantity(ing.Quantity, scale),
+		}
+	}
+	return scaled
+}
+
+func scaleQuantity(quantity string, scale float64) string {
+	if quantity == "" {
+		return quantity
+	}
+	fields := strings.Fields(quantity)
+	if len(fields) == 0 {
+		return quantity
+	}
+	val, err := strconv.ParseFloat(strings.ReplaceAll(fields[0], ",", "."), 64)
+	if err != nil {
+		return quantity
+	}
+	val *= scale
+	fields[0] = formatNumber(val)
+	return strings.Join(fields, " ")
+}
+
+func formatNumber(n float64) string {
+	if math.Abs(n-math.Round(n)) < 0.001 {
+		return strconv.Itoa(int(math.Round(n)))
+	}
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", n), "0"), ".")
+}
+
+func builtinRecipes() []Recipe {
+	return []Recipe{
+		{
+			ID:          "lasagnes-vegetariennes",
+			Title:       "Lasagnes végétariennes au pesto",
+			Description: "Des couches généreuses de légumes rôtis, de pesto et de mozzarella fondante.",
+			ImageURL:    "https://images.unsplash.com/photo-1604908177650-0ac1c9bb6467?auto=format&fit=crop&w=1200&q=80",
+			SourceURL:   "https://hfresh.info/fr-FR/recettes/lasagnes-vegetariennes",
+			PrepTime:    "20 min",
+			CookTime:    "35 min",
+			TotalTime:   "55 min",
+			Difficulty:  "Facile",
+			Cuisine:     "Italienne",
+			Tags:        []string{"Végétarien", "Four", "Fromage"},
+			Servings:    4,
+			Weekly:      true,
+			Ingredients: []Ingredient{
+				{Name: "Feuilles de lasagnes fraîches", Quantity: "400 g"},
+				{Name: "Courgette", Quantity: "2"},
+				{Name: "Pesto basilic", Quantity: "120 g"},
+				{Name: "Mozzarella", Quantity: "200 g"},
+				{Name: "Tomates cerises", Quantity: "200 g"},
+				{Name: "Parmesan râpé", Quantity: "50 g"},
+			},
+			Steps: []string{
+				"Préchauffez le four à 200°C et coupez les légumes en fines tranches.",
+				"Faites rôtir les courgettes 10 minutes avec un filet d'huile d'olive.",
+				"Montez les lasagnes en alternant pâte, légumes, pesto et mozzarella.",
+				"Terminez par du parmesan et enfournez 25 minutes jusqu'à coloration dorée.",
+			},
+		},
+		{
+			ID:          "curry-cremeux-poulet",
+			Title:       "Curry crémeux de poulet coco",
+			Description: "Poulet fondant, sauce coco parfumée au citron vert et gingembre.",
+			ImageURL:    "https://images.unsplash.com/photo-1559050019-6b509a68e480?auto=format&fit=crop&w=1200&q=80",
+			SourceURL:   "https://hfresh.info/fr-FR/recettes/curry-cremeux-poulet",
+			PrepTime:    "15 min",
+			CookTime:    "25 min",
+			TotalTime:   "40 min",
+			Difficulty:  "Moyen",
+			Cuisine:     "Asiatique",
+			Tags:        []string{"Poulet", "Sans lactose", "Rapide"},
+			Servings:    3,
+			Weekly:      true,
+			Ingredients: []Ingredient{
+				{Name: "Blancs de poulet", Quantity: "400 g"},
+				{Name: "Lait de coco", Quantity: "250 ml"},
+				{Name: "Pâte de curry rouge", Quantity: "2 c. à soupe"},
+				{Name: "Gingembre frais", Quantity: "20 g"},
+				{Name: "Citron vert", Quantity: "1"},
+				{Name: "Riz jasmin", Quantity: "200 g"},
+			},
+			Steps: []string{
+				"Faites revenir le poulet en dés avec le gingembre râpé.",
+				"Ajoutez la pâte de curry, déglacez avec le lait de coco et laissez mijoter.",
+				"Parfumez de jus de citron vert et servez avec le riz jasmin cuit.",
+			},
+		},
+		{
+			ID:          "tarte-tatin-tomates",
+			Title:       "Tarte tatin aux tomates confites",
+			Description: "Une tatin salée caramélisée, relevée de thym et de feta émiettée.",
+			ImageURL:    "https://images.unsplash.com/photo-1506368249639-73a05d6f6488?auto=format&fit=crop&w=1200&q=80",
+			SourceURL:   "https://hfresh.info/fr-FR/recettes/tarte-tatin-tomates",
+			PrepTime:    "10 min",
+			CookTime:    "30 min",
+			TotalTime:   "40 min",
+			Difficulty:  "Facile",
+			Cuisine:     "Bistrot",
+			Tags:        []string{"Végétarien", "Tomate", "Express"},
+			Servings:    4,
+			Weekly:      false,
+			Ingredients: []Ingredient{
+				{Name: "Tomates cerises", Quantity: "500 g"},
+				{Name: "Pâte feuilletée", Quantity: "1"},
+				{Name: "Sucre brun", Quantity: "2 c. à soupe"},
+				{Name: "Vinaigre balsamique", Quantity: "1 c. à soupe"},
+				{Name: "Feta", Quantity: "80 g"},
+				{Name: "Thym frais", Quantity: "Quelques brins"},
+			},
+			Steps: []string{
+				"Caramélisez le sucre avec le balsamique dans une poêle allant au four.",
+				"Ajoutez les tomates, laissez confire 5 minutes, puis recouvrez de pâte.",
+				"Enfournez 25 minutes à 190°C, retournez et parsemez de feta et de thym.",
+			},
+		},
+	}
+}
