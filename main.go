@@ -118,15 +118,16 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 
 	filtered := filterRecipes(a.recipes, r.URL.Query())
 	data := map[string]any{
-		"Recipes":     filtered,
-		"Query":       r.URL.Query().Get("q"),
-		"Diet":        r.URL.Query().Get("diet"),
-		"Difficulty":  r.URL.Query().Get("difficulty"),
-		"Tag":         r.URL.Query().Get("tag"),
-		"LastUpdated": a.lastUpdated,
-		"Count":       len(filtered),
-		"AllCount":    len(a.recipes),
-		"Active":      "recettes",
+		"Recipes":         filtered,
+		"Query":           r.URL.Query().Get("q"),
+		"Diet":            r.URL.Query().Get("diet"),
+		"Difficulty":      r.URL.Query().Get("difficulty"),
+		"Tag":             r.URL.Query().Get("tag"),
+		"LastUpdated":     a.lastUpdated,
+		"Count":           len(filtered),
+		"AllCount":        len(a.recipes),
+		"Active":          "recettes",
+		"ContentTemplate": "recipes-content",
 	}
 	a.render(w, "recipes.gohtml", data)
 }
@@ -141,10 +142,11 @@ func (a *App) weeklyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	data := map[string]any{
-		"Recipes":     weekly,
-		"LastUpdated": a.lastUpdated,
-		"Count":       len(weekly),
-		"Active":      "semaine",
+		"Recipes":         weekly,
+		"LastUpdated":     a.lastUpdated,
+		"Count":           len(weekly),
+		"Active":          "semaine",
+		"ContentTemplate": "weekly-content",
 	}
 	a.render(w, "weekly.gohtml", data)
 }
@@ -160,9 +162,10 @@ func (a *App) recipeDetailHandler(w http.ResponseWriter, r *http.Request) {
 	for _, recipe := range a.recipes {
 		if recipe.ID == id {
 			data := map[string]any{
-				"Recipe":      recipe,
-				"LastUpdated": a.lastUpdated,
-				"Active":      "recettes",
+				"Recipe":          recipe,
+				"LastUpdated":     a.lastUpdated,
+				"Active":          "recettes",
+				"ContentTemplate": "detail-content",
 			}
 			a.render(w, "detail.gohtml", data)
 			return
@@ -179,8 +182,9 @@ func (a *App) shoppingHandler(w http.ResponseWriter, r *http.Request) {
 		entries = append(entries, entry)
 	}
 	data := map[string]any{
-		"Entries": entries,
-		"Active":  "courses",
+		"Entries":         entries,
+		"Active":          "courses",
+		"ContentTemplate": "shopping-content",
 	}
 	a.render(w, "shopping.gohtml", data)
 }

@@ -244,7 +244,11 @@
     </nav>
 </header>
 <main>
-    {{block "content" .}}{{end}}
+    {{with .ContentTemplate}}
+        {{template . $}}
+    {{else}}
+        {{template "content" .}}
+    {{end}}
 </main>
 </body>
 </html>
