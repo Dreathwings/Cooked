@@ -511,7 +511,7 @@ func (s *Scraper) scrapeRecipe(ctx context.Context, recipeURL string) (Recipe, e
 	if recipe, ok := parseFallbackRecipe(body, recipeURL); ok {
 		return recipe, nil
 	}
-	return Recipe{}, fmt.Errorf("aucune donnée Recipe détectée")
+	return slugRecipeFallback(recipeURL), nil
 }
 
 func (s *Scraper) newRequest(ctx context.Context, method, target string) (*http.Request, error) {
@@ -677,6 +677,19 @@ func htmlUnescape(s string) string {
 	s = strings.ReplaceAll(s, "&lt;", "<")
 	s = strings.ReplaceAll(s, "&gt;", ">")
 	return s
+}
+
+func slugRecipeFallback(recipeURL string) Recipe {
+	slug := urlToID(recipeURL)
+	title := strings.ReplaceAll(slug, "-", " ")
+	title = strings.Title(strings.TrimSpace(title))
+	return Recipe{
+		ID:          slug,
+		Title:       title,
+		Description: "Recette importée sans métadonnées (fallback).",
+		SourceURL:   recipeURL,
+		Servings:    2,
+	}
 }
 
 func decodeRecipeMap(m map[string]any) (Recipe, bool) {
