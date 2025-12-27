@@ -471,19 +471,8 @@ func parseJSONLDRecipe(body string) (Recipe, bool) {
 		if err := json.Unmarshal([]byte(block), &payload); err != nil {
 			continue
 		}
-		switch data := payload.(type) {
-		case map[string]any:
-			if recipe, ok := decodeRecipeMap(data); ok {
-				return recipe, true
-			}
-		case []any:
-			for _, item := range data {
-				if m, ok := item.(map[string]any); ok {
-					if recipe, ok := decodeRecipeMap(m); ok {
-						return recipe, true
-					}
-				}
-			}
+		if recipe, ok := findRecipeInAny(payload); ok {
+			return recipe, true
 		}
 	}
 	return Recipe{}, false
@@ -499,6 +488,31 @@ func findJSONLDBlocks(body string) []string {
 		}
 	}
 	return blocks
+}
+func findRecipeInAny(data any) (Recipe, bool) {
+	switch v := data.(type) {
+	case map[string]any:
+		if recipe, ok := decodeRecipeMap(v); ok {
+			return recipe, true
+		}
+		if graph, ok := v["@graph"]; ok {
+			if recipe, ok := findRecipeInAny(graph); ok {
+				return recipe, true
+			}
+		}
+		for _, nested := range v {
+			if recipe, ok := findRecipeInAny(nested); ok {
+				return recipe, true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if recipe, ok := findRecipeInAny(item); ok {
+				return recipe, true
+			}
+		}
+	}
+	return Recipe{}, false
 }
 
 func decodeRecipeMap(m map[string]any) (Recipe, bool) {
