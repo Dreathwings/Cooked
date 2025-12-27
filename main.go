@@ -84,11 +84,9 @@ func main() {
 }
 
 func NewApp() *App {
-	tmpl := template.Must(template.ParseFS(templateFS, "templates/*.gohtml"))
 	return &App{
 		shopping:  make(map[string]ShoppingEntry),
 		scraper:   NewScraper("https://hfresh.info/fr-FR"),
-		templates: tmpl,
 		refreshCh: make(chan struct{}, 1),
 	}
 }
@@ -118,16 +116,15 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 
 	filtered := filterRecipes(a.recipes, r.URL.Query())
 	data := map[string]any{
-		"Recipes":         filtered,
-		"Query":           r.URL.Query().Get("q"),
-		"Diet":            r.URL.Query().Get("diet"),
-		"Difficulty":      r.URL.Query().Get("difficulty"),
-		"Tag":             r.URL.Query().Get("tag"),
-		"LastUpdated":     a.lastUpdated,
-		"Count":           len(filtered),
-		"AllCount":        len(a.recipes),
-		"Active":          "recettes",
-		"ContentTemplate": "recipes-content",
+		"Recipes":     filtered,
+		"Query":       r.URL.Query().Get("q"),
+		"Diet":        r.URL.Query().Get("diet"),
+		"Difficulty":  r.URL.Query().Get("difficulty"),
+		"Tag":         r.URL.Query().Get("tag"),
+		"LastUpdated": a.lastUpdated,
+		"Count":       len(filtered),
+		"AllCount":    len(a.recipes),
+		"Active":      "recettes",
 	}
 	a.render(w, "recipes.gohtml", data)
 }
@@ -142,11 +139,10 @@ func (a *App) weeklyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	data := map[string]any{
-		"Recipes":         weekly,
-		"LastUpdated":     a.lastUpdated,
-		"Count":           len(weekly),
-		"Active":          "semaine",
-		"ContentTemplate": "weekly-content",
+		"Recipes":     weekly,
+		"LastUpdated": a.lastUpdated,
+		"Count":       len(weekly),
+		"Active":      "semaine",
 	}
 	a.render(w, "weekly.gohtml", data)
 }
@@ -162,10 +158,9 @@ func (a *App) recipeDetailHandler(w http.ResponseWriter, r *http.Request) {
 	for _, recipe := range a.recipes {
 		if recipe.ID == id {
 			data := map[string]any{
-				"Recipe":          recipe,
-				"LastUpdated":     a.lastUpdated,
-				"Active":          "recettes",
-				"ContentTemplate": "detail-content",
+				"Recipe":      recipe,
+				"LastUpdated": a.lastUpdated,
+				"Active":      "recettes",
 			}
 			a.render(w, "detail.gohtml", data)
 			return
@@ -182,9 +177,8 @@ func (a *App) shoppingHandler(w http.ResponseWriter, r *http.Request) {
 		entries = append(entries, entry)
 	}
 	data := map[string]any{
-		"Entries":         entries,
-		"Active":          "courses",
-		"ContentTemplate": "shopping-content",
+		"Entries": entries,
+		"Active":  "courses",
 	}
 	a.render(w, "shopping.gohtml", data)
 }
@@ -318,8 +312,15 @@ func (a *App) loadBuiltins() {
 }
 
 func (a *App) render(w http.ResponseWriter, name string, data map[string]any) {
+	tmpl, err := template.New("base.gohtml").ParseFS(templateFS, "templates/base.gohtml", "templates/"+name)
+	if err != nil {
+		http.Error(w, "Erreur de template", http.StatusInternalServerError)
+		log.Printf("erreur template parse %s : %v", name, err)
+		return
+	}
+
 	var buf bytes.Buffer
-	if err := a.templates.ExecuteTemplate(&buf, name, data); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
 		http.Error(w, "Erreur de rendu", http.StatusInternalServerError)
 		log.Printf("erreur template %s : %v", name, err)
 		return
