@@ -572,7 +572,8 @@ func findRecipeInAny(data any) (Recipe, bool) {
 	}
 	return Recipe{}, false
 }
-@@ -519,147 +577,191 @@ func decodeRecipeMap(m map[string]any) (Recipe, bool) {
+
+func decodeRecipeMap(m map[string]any) (Recipe, bool) {
 	var types []string
 	switch t := m["@type"].(type) {
 	case string:
@@ -764,6 +765,7 @@ func urlToID(u string) string {
 		return ""
 	}
 	return parts[len(parts)-1]
+}
 
 func uniqueStrings(in []string) []string {
 	seen := make(map[string]struct{})
