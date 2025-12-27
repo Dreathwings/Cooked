@@ -317,7 +317,7 @@ func filterRecipes(recipes []Recipe, params url.Values) []Recipe {
 		}
 		filtered = append(filtered, recipe)
 	}
-	return filtered
+return filtered
 }
 
 func containsFold(list []string, q string) bool {
@@ -342,6 +342,7 @@ func logRequests(next http.Handler) http.Handler {
 type Scraper struct {
 	baseURL string
 	client  *http.Client
+	ua      string
 }
 
 func NewScraper(baseURL string) *Scraper {
@@ -350,6 +351,7 @@ func NewScraper(baseURL string) *Scraper {
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 		},
+		ua: "CookedScraper/1.0 (+https://hfresh.info)",
 	}
 }
 
@@ -382,7 +384,10 @@ func (s *Scraper) FetchAll(ctx context.Context) ([]Recipe, error) {
 
 func (s *Scraper) gatherRecipeURLs(ctx context.Context) ([]string, error) {
 	sitemapURL := s.baseURL + "/sitemap.xml"
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, sitemapURL, nil)
+	req, err := s.newRequest(ctx, http.MethodGet, sitemapURL)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := s.client.Do(req)
 	if err == nil && resp.StatusCode == http.StatusOK {
 		defer resp.Body.Close()
@@ -410,7 +415,10 @@ func (s *Scraper) gatherRecipeURLs(ctx context.Context) ([]string, error) {
 	}
 
 	// Fallback: fetch home page and extract recipe links.
-	homeReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL, nil)
+	homeReq, err := s.newRequest(ctx, http.MethodGet, s.baseURL)
+	if err != nil {
+		return nil, err
+	}
 	homeResp, err := s.client.Do(homeReq)
 	if err != nil {
 		return nil, err
@@ -425,7 +433,10 @@ func (s *Scraper) gatherRecipeURLs(ctx context.Context) ([]string, error) {
 }
 
 func (s *Scraper) scrapeRecipe(ctx context.Context, recipeURL string) (Recipe, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, recipeURL, nil)
+	req, err := s.newRequest(ctx, http.MethodGet, recipeURL)
+	if err != nil {
+		return Recipe{}, err
+	}
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return Recipe{}, err
@@ -441,6 +452,19 @@ func (s *Scraper) scrapeRecipe(ctx context.Context, recipeURL string) (Recipe, e
 		return recipe, nil
 	}
 	return Recipe{}, fmt.Errorf("aucune donnée Recipe détectée")
+}
+
+func (s *Scraper) newRequest(ctx context.Context, method, target string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	if s.ua != "" {
+		req.Header.Set("User-Agent", s.ua)
+	}
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "fr-FR,fr;q=0.9,en;q=0.8")
+	return req, nil
 }
 
 func extractRecipeLinks(body, base string) []string {
@@ -465,10 +489,14 @@ func extractRecipeLinks(body, base string) []string {
 }
 
 func parseJSONLDRecipe(body string) (Recipe, bool) {
-	scripts := findJSONLDBlocks(body)
+	scripts := append(findJSONLDBlocks(body), findAdditionalJSONBlocks(body)...)
 	for _, block := range scripts {
 		var payload any
-		if err := json.Unmarshal([]byte(block), &payload); err != nil {
+		normalized := normalizeJSONBlock(block)
+		if normalized == "" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(normalized), &payload); err != nil {
 			continue
 		}
 		if recipe, ok := findRecipeInAny(payload); ok {
@@ -489,6 +517,36 @@ func findJSONLDBlocks(body string) []string {
 	}
 	return blocks
 }
+
+func findAdditionalJSONBlocks(body string) []string {
+	re := regexp.MustCompile(`(?is)<script[^>]*type=["']application/json["'][^>]*>(.*?)</script>`)
+	matches := re.FindAllStringSubmatch(body, -1)
+	var blocks []string
+	for _, match := range matches {
+		if len(match) > 1 {
+			blocks = append(blocks, strings.TrimSpace(match[1]))
+		}
+	}
+	return blocks
+}
+
+func normalizeJSONBlock(content string) string {
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "window.__NEXT_DATA__ =")
+	content = strings.TrimPrefix(content, "window.__INITIAL_STATE__=")
+	content = strings.TrimSuffix(content, ";")
+	content = strings.TrimSpace(content)
+	start := strings.IndexAny(content, "{[")
+	if start == -1 {
+		return ""
+	}
+	end := strings.LastIndexAny(content, "}]")
+	if end == -1 || end < start {
+		return ""
+	}
+	return strings.TrimSpace(content[start : end+1])
+}
+
 func findRecipeInAny(data any) (Recipe, bool) {
 	switch v := data.(type) {
 	case map[string]any:
@@ -514,8 +572,7 @@ func findRecipeInAny(data any) (Recipe, bool) {
 	}
 	return Recipe{}, false
 }
-
-func decodeRecipeMap(m map[string]any) (Recipe, bool) {
+@@ -519,147 +577,191 @@ func decodeRecipeMap(m map[string]any) (Recipe, bool) {
 	var types []string
 	switch t := m["@type"].(type) {
 	case string:
@@ -541,7 +598,7 @@ func decodeRecipeMap(m map[string]any) (Recipe, bool) {
 	recipe := Recipe{
 		Title:       stringValue(m["name"]),
 		Description: stringValue(m["description"]),
-		ImageURL:    firstString(m["image"]),
+		ImageURL:    firstImage(m["image"]),
 		PrepTime:    stringValue(m["prepTime"]),
 		CookTime:    stringValue(m["cookTime"]),
 		TotalTime:   stringValue(m["totalTime"]),
@@ -587,6 +644,27 @@ func firstString(v any) string {
 	return ""
 }
 
+func firstImage(v any) string {
+	switch val := v.(type) {
+	case string:
+		return val
+	case map[string]any:
+		if u := stringValue(val["url"]); u != "" {
+			return u
+		}
+		if u := stringValue(val["@id"]); u != "" {
+			return u
+		}
+	case []any:
+		for _, item := range val {
+			if u := firstImage(item); u != "" {
+				return u
+			}
+		}
+	}
+	return ""
+}
+
 func parseIngredients(v any) []Ingredient {
 	var ingredients []Ingredient
 	switch val := v.(type) {
@@ -594,6 +672,19 @@ func parseIngredients(v any) []Ingredient {
 		for _, item := range val {
 			if s, ok := item.(string); ok {
 				ingredients = append(ingredients, Ingredient{Name: s})
+				continue
+			}
+			if m, ok := item.(map[string]any); ok {
+				name := stringValue(m["item"])
+				if name == "" {
+					name = stringValue(m["name"])
+				}
+				if name == "" {
+					name = stringValue(m["text"])
+				}
+				if name != "" {
+					ingredients = append(ingredients, Ingredient{Name: name})
+				}
 			}
 		}
 	case []string:
@@ -613,6 +704,10 @@ func parseInstructions(v any) []string {
 			case string:
 				steps = append(steps, inst)
 			case map[string]any:
+				if nested, ok := inst["itemListElement"]; ok {
+					steps = append(steps, parseInstructions(nested)...)
+					continue
+				}
 				if txt := stringValue(inst["text"]); txt != "" {
 					steps = append(steps, txt)
 				}
@@ -638,6 +733,12 @@ func parseServings(v any) int {
 		}
 	case float64:
 		return int(val)
+	case map[string]any:
+		if raw, ok := val["value"]; ok {
+			if n := parseServings(raw); n != 0 {
+				return n
+			}
+		}
 	}
 	return 2
 }
@@ -663,7 +764,6 @@ func urlToID(u string) string {
 		return ""
 	}
 	return parts[len(parts)-1]
-}
 
 func uniqueStrings(in []string) []string {
 	seen := make(map[string]struct{})
