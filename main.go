@@ -429,7 +429,33 @@ func (s *Scraper) gatherRecipeURLs(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	body := buf.String()
-	return extractRecipeLinks(body, s.baseURL), nil
+	urls := extractRecipeLinks(body, s.baseURL)
+
+	// Pagination : parcourir les pages ?page=2,3,... tant que des liens sont trouvés.
+	for page := 2; page <= 12; page++ {
+		pageURL := fmt.Sprintf("%s?page=%d", s.baseURL, page)
+		req, err := s.newRequest(ctx, http.MethodGet, pageURL)
+		if err != nil {
+			break
+		}
+		resp, err := s.client.Do(req)
+		if err != nil {
+			break
+		}
+		pageBuf := new(bytes.Buffer)
+		if _, err := pageBuf.ReadFrom(resp.Body); err != nil {
+			resp.Body.Close()
+			break
+		}
+		resp.Body.Close()
+		pageLinks := extractRecipeLinks(pageBuf.String(), s.baseURL)
+		if len(pageLinks) == 0 {
+			break
+		}
+		urls = append(urls, pageLinks...)
+	}
+
+	return uniqueStrings(urls), nil
 }
 
 func (s *Scraper) scrapeRecipe(ctx context.Context, recipeURL string) (Recipe, error) {
