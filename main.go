@@ -274,7 +274,9 @@ func (a *App) startBackgroundRefresh(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-a.refreshCh:
-				refreshCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+				// Utilise un contexte indépendant pour éviter d'annuler le scraping
+				// en cas de timeout trop court côté requête HTTP initiale.
+				refreshCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				if err := a.Refresh(refreshCtx); err != nil {
 					log.Printf("Actualisation échouée : %v", err)
 				}
@@ -378,7 +380,7 @@ func NewScraper(baseURL string) *Scraper {
 	return &Scraper{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 20 * time.Second,
 		},
 		ua: "CookedScraper/1.0 (+https://hfresh.info)",
 	}
