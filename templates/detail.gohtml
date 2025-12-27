@@ -1,0 +1,49 @@
+{{define "content"}}
+    <div class="title-row">
+        <div>
+            <div class="badge">{{if .Recipe.Weekly}}Sélection de la semaine{{else}}Recette hfresh{{end}}</div>
+            <h1>{{.Recipe.Title}}</h1>
+            <p class="muted">Mise à jour : {{.LastUpdated.Format "02/01/2006 15:04"}}</p>
+        </div>
+        <div class="actions">
+            <form class="inline" action="/courses/ajouter" method="post">
+                <input type="hidden" name="recipe_id" value="{{.Recipe.ID}}">
+                <label for="servings">Personnes</label>
+                <input type="number" id="servings" name="servings" value="{{.Recipe.Servings}}" min="1" max="10">
+                <button class="btn" type="submit">Ajouter à la liste</button>
+            </form>
+            <a class="btn secondary" href="{{.Recipe.SourceURL}}" target="_blank" rel="noreferrer">Voir sur hfresh</a>
+        </div>
+    </div>
+    <div class="section" style="padding:0;">
+        <div class="thumb" style="height:280px; background-image:url('{{.Recipe.ImageURL}}'); border-radius: 16px 16px 0 0;"></div>
+        <div class="body" style="padding:1.1rem;">
+            <p>{{.Recipe.Description}}</p>
+            <div class="muted">
+                {{if .Recipe.TotalTime}}⏱ {{.Recipe.TotalTime}}{{end}}
+                {{if .Recipe.Difficulty}} · {{.Recipe.Difficulty}}{{end}}
+                {{if .Recipe.Cuisine}} · {{.Recipe.Cuisine}}{{end}}
+                · {{.Recipe.Servings}} pers.
+            </div>
+            <div style="margin-top:0.5rem;">
+                {{range .Recipe.Tags}}<span class="pill" style="margin-right:0.25rem;">{{.}}</span>{{end}}
+            </div>
+        </div>
+    </div>
+    <div class="section">
+        <h2>Ingrédients (pour {{.Recipe.Servings}} pers.)</h2>
+        <div class="ingredients">
+            {{range .Recipe.Ingredients}}
+                <div class="pill">{{.Quantity}} {{.Name}}</div>
+            {{end}}
+        </div>
+    </div>
+    <div class="section">
+        <h2>Étapes</h2>
+        <ol class="steps">
+            {{range .Recipe.Steps}}
+                <li>{{.}}</li>
+            {{end}}
+        </ol>
+    </div>
+{{end}}
