@@ -59,15 +59,16 @@ type App struct {
 	lastUpdated time.Time
 	scraper     *Scraper
 	templates   *template.Template
+	refreshCh   chan struct{}
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	app := NewApp()
-
-	if err := app.Refresh(ctx); err != nil {
-		log.Printf("Impossible de récupérer les données en ligne, utilisation des recettes intégrées : %v", err)
-	}
+	app.loadBuiltins()
+	app.startBackgroundRefresh(ctx)
+	app.enqueueRefresh()
 
 	server := &http.Server{
 		Addr:         ":3044",
@@ -88,6 +89,7 @@ func NewApp() *App {
 		shopping:  make(map[string]ShoppingEntry),
 		scraper:   NewScraper("https://hfresh.info/fr-FR"),
 		templates: tmpl,
+		refreshCh: make(chan struct{}, 1),
 	}
 }
 
@@ -261,12 +263,32 @@ func (a *App) refreshHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/recettes", http.StatusSeeOther)
 		return
 	}
-	if err := a.Refresh(r.Context()); err != nil {
-		log.Printf("Actualisation échouée : %v", err)
-		http.Redirect(w, r, "/recettes?erreur=refresh", http.StatusSeeOther)
-		return
+	a.enqueueRefresh()
+	http.Redirect(w, r, "/recettes?refresh=en-cours", http.StatusSeeOther)
+}
+
+func (a *App) startBackgroundRefresh(ctx context.Context) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-a.refreshCh:
+				refreshCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+				if err := a.Refresh(refreshCtx); err != nil {
+					log.Printf("Actualisation échouée : %v", err)
+				}
+				cancel()
+			}
+		}
+	}()
+}
+
+func (a *App) enqueueRefresh() {
+	select {
+	case a.refreshCh <- struct{}{}:
+	default:
 	}
-	http.Redirect(w, r, "/recettes", http.StatusSeeOther)
 }
 
 func (a *App) Refresh(ctx context.Context) error {
@@ -280,6 +302,13 @@ func (a *App) Refresh(ctx context.Context) error {
 	a.lastUpdated = time.Now()
 	a.mu.Unlock()
 	return err
+}
+
+func (a *App) loadBuiltins() {
+	a.mu.Lock()
+	a.recipes = builtinRecipes()
+	a.lastUpdated = time.Now()
+	a.mu.Unlock()
 }
 
 func (a *App) render(w http.ResponseWriter, name string, data map[string]any) {
