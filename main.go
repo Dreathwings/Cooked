@@ -317,7 +317,7 @@ func filterRecipes(recipes []Recipe, params url.Values) []Recipe {
 		}
 		filtered = append(filtered, recipe)
 	}
-return filtered
+	return filtered
 }
 
 func containsFold(list []string, q string) bool {
@@ -451,6 +451,9 @@ func (s *Scraper) scrapeRecipe(ctx context.Context, recipeURL string) (Recipe, e
 		recipe.SourceURL = recipeURL
 		return recipe, nil
 	}
+	if recipe, ok := parseFallbackRecipe(body, recipeURL); ok {
+		return recipe, nil
+	}
 	return Recipe{}, fmt.Errorf("aucune donnée Recipe détectée")
 }
 
@@ -572,7 +575,54 @@ func findRecipeInAny(data any) (Recipe, bool) {
 	}
 	return Recipe{}, false
 }
-@@ -519,147 +577,191 @@ func decodeRecipeMap(m map[string]any) (Recipe, bool) {
+
+func parseFallbackRecipe(body, recipeURL string) (Recipe, bool) {
+	title := extractMeta(body, []string{`property=["']og:title["']`, `name=["']title["']`})
+	if title == "" {
+		title = extractTitleTag(body)
+	}
+	if title == "" {
+		return Recipe{}, false
+	}
+	desc := extractMeta(body, []string{`property=["']og:description["']`, `name=["']description["']`})
+	image := extractMeta(body, []string{`property=["']og:image["']`, `name=["']image["']`})
+	return Recipe{
+		ID:          urlToID(recipeURL),
+		Title:       htmlUnescape(title),
+		Description: htmlUnescape(desc),
+		ImageURL:    image,
+		SourceURL:   recipeURL,
+	}, true
+}
+
+func extractMeta(body string, patterns []string) string {
+	for _, p := range patterns {
+		re := regexp.MustCompile(`(?is)<meta[^>]+` + p + `[^>]*content=["']([^"']+)["'][^>]*>`)
+		if match := re.FindStringSubmatch(body); len(match) > 1 {
+			return strings.TrimSpace(match[1])
+		}
+	}
+	return ""
+}
+
+func extractTitleTag(body string) string {
+	re := regexp.MustCompile(`(?is)<title>(.*?)</title>`)
+	if match := re.FindStringSubmatch(body); len(match) > 1 {
+		return strings.TrimSpace(match[1])
+	}
+	return ""
+}
+
+func htmlUnescape(s string) string {
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	s = strings.ReplaceAll(s, "&quot;", "\"")
+	s = strings.ReplaceAll(s, "&#39;", "'")
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	return s
+}
+
+func decodeRecipeMap(m map[string]any) (Recipe, bool) {
 	var types []string
 	switch t := m["@type"].(type) {
 	case string:
@@ -764,6 +814,7 @@ func urlToID(u string) string {
 		return ""
 	}
 	return parts[len(parts)-1]
+}
 
 func uniqueStrings(in []string) []string {
 	seen := make(map[string]struct{})
