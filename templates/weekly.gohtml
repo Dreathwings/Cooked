@@ -1,0 +1,43 @@
+{{define "content"}}
+    <div class="hero">
+        <div>
+            <div class="badge">hfresh.info</div>
+            <h1>Recettes de la semaine</h1>
+            <p class="muted">{{.Count}} sélection(s) · Dernière mise à jour : {{.LastUpdated.Format "02/01/2006 15:04"}}</p>
+        </div>
+        <div class="actions">
+            <a class="btn secondary" href="/recettes">Voir toutes les recettes</a>
+            <form action="/refresh" method="post">
+                <button class="btn" type="submit">Actualiser</button>
+            </form>
+        </div>
+    </div>
+    {{if .Recipes}}
+        <div class="grid">
+            {{range .Recipes}}
+                <article class="card">
+                    <div class="thumb" style="background-image:url('{{.ImageURL}}');"></div>
+                    <div class="body">
+                        <div class="chip">Semaine en cours</div>
+                        <h3>{{.Title}}</h3>
+                        <p class="muted">{{.Description}}</p>
+                        <div class="muted">
+                            {{if .TotalTime}}⏱ {{.TotalTime}}{{end}}
+                            {{if .Difficulty}} · {{.Difficulty}}{{end}}
+                        </div>
+                        <div style="margin-top:auto; display:flex; gap:0.5rem; flex-wrap:wrap;">
+                            <a class="btn secondary" href="/recettes/{{.ID}}">Détails</a>
+                            <form class="inline" action="/courses/ajouter" method="post">
+                                <input type="hidden" name="recipe_id" value="{{.ID}}">
+                                <input type="hidden" name="servings" value="{{.Servings}}">
+                                <button class="btn" type="submit">Ajouter à la liste</button>
+                            </form>
+                        </div>
+                    </div>
+                </article>
+            {{end}}
+        </div>
+    {{else}}
+        <div class="empty">Pas encore de sélection hebdomadaire. Essayez de rafraîchir.</div>
+    {{end}}
+{{end}}
