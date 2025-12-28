@@ -128,6 +128,9 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 		"Count":       len(filtered),
 		"AllCount":    len(a.recipes),
 		"Active":      "recettes",
+		"PageTitle":   "Recettes · Base de données HelloFresh",
+		"BodyClass":   "hf-body",
+		"MainClass":   "hf-main",
 	}
 	a.render(w, "recipes.gohtml", data)
 }
