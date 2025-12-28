@@ -166,6 +166,9 @@ func (a *App) recipeDetailHandler(w http.ResponseWriter, r *http.Request) {
 				"Recipe":      recipe,
 				"LastUpdated": a.lastUpdated,
 				"Active":      "recettes",
+				"PageTitle":   fmt.Sprintf("%s · Base de données HelloFresh", recipe.Title),
+				"BodyClass":   "detail-body",
+				"MainClass":   "detail-main",
 			}
 			a.render(w, "detail.gohtml", data)
 			return
