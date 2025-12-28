@@ -59,15 +59,16 @@ type App struct {
 	lastUpdated time.Time
 	scraper     *Scraper
 	templates   *template.Template
+	refreshCh   chan struct{}
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	app := NewApp()
-
-	if err := app.Refresh(ctx); err != nil {
-		log.Printf("Impossible de récupérer les données en ligne, utilisation des recettes intégrées : %v", err)
-	}
+	app.loadBuiltins()
+	app.startBackgroundRefresh(ctx)
+	app.enqueueRefresh()
 
 	server := &http.Server{
 		Addr:         ":3044",
@@ -83,11 +84,10 @@ func main() {
 }
 
 func NewApp() *App {
-	tmpl := template.Must(template.ParseFS(templateFS, "templates/*.gohtml"))
 	return &App{
 		shopping:  make(map[string]ShoppingEntry),
 		scraper:   NewScraper("https://hfresh.info/fr-FR"),
-		templates: tmpl,
+		refreshCh: make(chan struct{}, 1),
 	}
 }
 
@@ -261,12 +261,34 @@ func (a *App) refreshHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/recettes", http.StatusSeeOther)
 		return
 	}
-	if err := a.Refresh(r.Context()); err != nil {
-		log.Printf("Actualisation échouée : %v", err)
-		http.Redirect(w, r, "/recettes?erreur=refresh", http.StatusSeeOther)
-		return
+	a.enqueueRefresh()
+	http.Redirect(w, r, "/recettes?refresh=en-cours", http.StatusSeeOther)
+}
+
+func (a *App) startBackgroundRefresh(ctx context.Context) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-a.refreshCh:
+				// Utilise un contexte indépendant pour éviter d'annuler le scraping
+				// en cas de timeout trop court côté requête HTTP initiale.
+				refreshCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				if err := a.Refresh(refreshCtx); err != nil {
+					log.Printf("Actualisation échouée : %v", err)
+				}
+				cancel()
+			}
+		}
+	}()
+}
+
+func (a *App) enqueueRefresh() {
+	select {
+	case a.refreshCh <- struct{}{}:
+	default:
 	}
-	http.Redirect(w, r, "/recettes", http.StatusSeeOther)
 }
 
 func (a *App) Refresh(ctx context.Context) error {
@@ -282,9 +304,23 @@ func (a *App) Refresh(ctx context.Context) error {
 	return err
 }
 
+func (a *App) loadBuiltins() {
+	a.mu.Lock()
+	a.recipes = builtinRecipes()
+	a.lastUpdated = time.Now()
+	a.mu.Unlock()
+}
+
 func (a *App) render(w http.ResponseWriter, name string, data map[string]any) {
+	tmpl, err := template.New("base.gohtml").ParseFS(templateFS, "templates/base.gohtml", "templates/"+name)
+	if err != nil {
+		http.Error(w, "Erreur de template", http.StatusInternalServerError)
+		log.Printf("erreur template parse %s : %v", name, err)
+		return
+	}
+
 	var buf bytes.Buffer
-	if err := a.templates.ExecuteTemplate(&buf, name, data); err != nil {
+	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
 		http.Error(w, "Erreur de rendu", http.StatusInternalServerError)
 		log.Printf("erreur template %s : %v", name, err)
 		return
@@ -317,7 +353,7 @@ func filterRecipes(recipes []Recipe, params url.Values) []Recipe {
 		}
 		filtered = append(filtered, recipe)
 	}
-return filtered
+	return filtered
 }
 
 func containsFold(list []string, q string) bool {
@@ -349,7 +385,7 @@ func NewScraper(baseURL string) *Scraper {
 	return &Scraper{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client: &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 20 * time.Second,
 		},
 		ua: "CookedScraper/1.0 (+https://hfresh.info)",
 	}
@@ -429,7 +465,33 @@ func (s *Scraper) gatherRecipeURLs(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	body := buf.String()
-	return extractRecipeLinks(body, s.baseURL), nil
+	urls := extractRecipeLinks(body, s.baseURL)
+
+	// Pagination : parcourir les pages ?page=2,3,... tant que des liens sont trouvés.
+	for page := 2; page <= 12; page++ {
+		pageURL := fmt.Sprintf("%s?page=%d", s.baseURL, page)
+		req, err := s.newRequest(ctx, http.MethodGet, pageURL)
+		if err != nil {
+			break
+		}
+		resp, err := s.client.Do(req)
+		if err != nil {
+			break
+		}
+		pageBuf := new(bytes.Buffer)
+		if _, err := pageBuf.ReadFrom(resp.Body); err != nil {
+			resp.Body.Close()
+			break
+		}
+		resp.Body.Close()
+		pageLinks := extractRecipeLinks(pageBuf.String(), s.baseURL)
+		if len(pageLinks) == 0 {
+			break
+		}
+		urls = append(urls, pageLinks...)
+	}
+
+	return uniqueStrings(urls), nil
 }
 
 func (s *Scraper) scrapeRecipe(ctx context.Context, recipeURL string) (Recipe, error) {
@@ -451,7 +513,10 @@ func (s *Scraper) scrapeRecipe(ctx context.Context, recipeURL string) (Recipe, e
 		recipe.SourceURL = recipeURL
 		return recipe, nil
 	}
-	return Recipe{}, fmt.Errorf("aucune donnée Recipe détectée")
+	if recipe, ok := parseFallbackRecipe(body, recipeURL); ok {
+		return recipe, nil
+	}
+	return slugRecipeFallback(recipeURL), nil
 }
 
 func (s *Scraper) newRequest(ctx context.Context, method, target string) (*http.Request, error) {
@@ -571,6 +636,65 @@ func findRecipeInAny(data any) (Recipe, bool) {
 		}
 	}
 	return Recipe{}, false
+}
+
+func parseFallbackRecipe(body, recipeURL string) (Recipe, bool) {
+	title := extractMeta(body, []string{`property=["']og:title["']`, `name=["']title["']`})
+	if title == "" {
+		title = extractTitleTag(body)
+	}
+	if title == "" {
+		return Recipe{}, false
+	}
+	desc := extractMeta(body, []string{`property=["']og:description["']`, `name=["']description["']`})
+	image := extractMeta(body, []string{`property=["']og:image["']`, `name=["']image["']`})
+	return Recipe{
+		ID:          urlToID(recipeURL),
+		Title:       htmlUnescape(title),
+		Description: htmlUnescape(desc),
+		ImageURL:    image,
+		SourceURL:   recipeURL,
+	}, true
+}
+
+func extractMeta(body string, patterns []string) string {
+	for _, p := range patterns {
+		re := regexp.MustCompile(`(?is)<meta[^>]+` + p + `[^>]*content=["']([^"']+)["'][^>]*>`)
+		if match := re.FindStringSubmatch(body); len(match) > 1 {
+			return strings.TrimSpace(match[1])
+		}
+	}
+	return ""
+}
+
+func extractTitleTag(body string) string {
+	re := regexp.MustCompile(`(?is)<title>(.*?)</title>`)
+	if match := re.FindStringSubmatch(body); len(match) > 1 {
+		return strings.TrimSpace(match[1])
+	}
+	return ""
+}
+
+func htmlUnescape(s string) string {
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	s = strings.ReplaceAll(s, "&quot;", "\"")
+	s = strings.ReplaceAll(s, "&#39;", "'")
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	return s
+}
+
+func slugRecipeFallback(recipeURL string) Recipe {
+	slug := urlToID(recipeURL)
+	title := strings.ReplaceAll(slug, "-", " ")
+	title = strings.Title(strings.TrimSpace(title))
+	return Recipe{
+		ID:          slug,
+		Title:       title,
+		Description: "Recette importée sans métadonnées (fallback).",
+		SourceURL:   recipeURL,
+		Servings:    2,
+	}
 }
 
 func decodeRecipeMap(m map[string]any) (Recipe, bool) {
