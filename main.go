@@ -5,7 +5,6 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
 	"html"
@@ -128,6 +127,9 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 		"Count":       len(filtered),
 		"AllCount":    len(a.recipes),
 		"Active":      "recettes",
+		"PageTitle":   "Recettes · Base de données HelloFresh",
+		"BodyClass":   "hf-body",
+		"MainClass":   "hf-main",
 	}
 	a.render(w, "recipes.gohtml", data)
 }
@@ -418,18 +420,26 @@ func (s *Scraper) FetchAll(ctx context.Context) ([]Recipe, error) {
 	if err != nil {
 		return nil, err
 	}
+	seen := make(map[string]bool)
 	var recipes []Recipe
 	for _, u := range urls {
+		id := urlToID(u)
+		if id != "" && seen[id] {
+			continue
+		}
 		recipe, err := s.scrapeRecipe(ctx, u)
 		if err != nil {
 			log.Printf("erreur de scraping %s : %v", u, err)
 			continue
 		}
 		if recipe.ID == "" {
-			recipe.ID = urlToID(u)
+			recipe.ID = id
 		}
 		if recipe.SourceURL == "" {
 			recipe.SourceURL = u
+		}
+		if recipe.ID != "" {
+			seen[recipe.ID] = true
 		}
 		recipes = append(recipes, recipe)
 		if len(recipes) >= 48 {
@@ -441,38 +451,7 @@ func (s *Scraper) FetchAll(ctx context.Context) ([]Recipe, error) {
 }
 
 func (s *Scraper) gatherRecipeURLs(ctx context.Context) ([]string, error) {
-	sitemapURL := s.baseURL + "/sitemap.xml"
-	req, err := s.newRequest(ctx, http.MethodGet, sitemapURL)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := s.client.Do(req)
-	if err == nil && resp.StatusCode == http.StatusOK {
-		defer resp.Body.Close()
-		type loc struct {
-			Loc string `xml:"loc"`
-		}
-		type urlset struct {
-			URLs []loc `xml:"url"`
-		}
-		var sm urlset
-		if err := xml.NewDecoder(resp.Body).Decode(&sm); err == nil {
-			var urls []string
-			for _, u := range sm.URLs {
-				if strings.Contains(u.Loc, "/recipes") || strings.Contains(u.Loc, "/recettes") {
-					urls = append(urls, u.Loc)
-				}
-			}
-			if len(urls) > 0 {
-				return urls, nil
-			}
-		}
-	}
-	if resp != nil {
-		resp.Body.Close()
-	}
-
-	// Fallback: fetch home page and extract recipe links.
+	// Fetch the listing page first to extract recipe links.
 	homeReq, err := s.newRequest(ctx, http.MethodGet, s.baseURL)
 	if err != nil {
 		return nil, err

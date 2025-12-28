@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cooked – Recettes hfresh</title>
+    <title>{{if .PageTitle}}{{.PageTitle}}{{else}}Cooked – Recettes hfresh{{end}}</title>
     <style>
         :root {
             --hfresh-green: #44b15a;
@@ -226,8 +226,9 @@
             .title-row { flex-direction: column; align-items: flex-start; }
         }
     </style>
+    {{block "page_head" .}}{{end}}
 </head>
-<body>
+<body{{if .BodyClass}} class="{{.BodyClass}}"{{end}}>
 <header>
     <nav>
         <div class="brand">
@@ -243,7 +244,7 @@
         </form>
     </nav>
 </header>
-<main>
+<main{{if .MainClass}} class="{{.MainClass}}"{{end}}>
     {{block "content" .}}{{end}}
 </main>
 </body>
