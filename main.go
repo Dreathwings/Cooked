@@ -6,12 +6,15 @@ import (
 	"embed"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"html"
 	"html/template"
 	"log"
 	"math"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -294,8 +297,27 @@ func (a *App) enqueueRefresh() {
 func (a *App) Refresh(ctx context.Context) error {
 	recipes, err := a.scraper.FetchAll(ctx)
 	if err != nil || len(recipes) == 0 {
-		recipes = builtinRecipes()
-		err = fmt.Errorf("retombé sur les recettes intégrées : %w", err)
+		snapshots, snapErr := loadSnapshotRecipes()
+		baseErr := err
+		if baseErr == nil {
+			baseErr = errors.New("aucune recette récupérée")
+		}
+
+		if len(snapshots) > 0 {
+			recipes = markWeekly(snapshots)
+			err = errors.Join(baseErr, snapErr)
+			if err == nil {
+				err = errors.New("utilisation du snapshot local")
+			}
+		} else {
+			recipes = builtinRecipes()
+			err = errors.Join(baseErr, snapErr)
+			if err == nil {
+				err = errors.New("retombé sur les recettes intégrées")
+			} else {
+				err = fmt.Errorf("%w ; recettes intégrées utilisées", err)
+			}
+		}
 	}
 	a.mu.Lock()
 	a.recipes = recipes
@@ -949,6 +971,262 @@ func formatNumber(n float64) string {
 		return strconv.Itoa(int(math.Round(n)))
 	}
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", n), "0"), ".")
+}
+
+func loadSnapshotRecipes() ([]Recipe, error) {
+	const listFile = "Recettes · Base de données HelloFresh.htm"
+	const detailFile = "La Chèvre chaud _ betterave & bacon · Base de données HelloFresh.htm"
+
+	listRecipes, listErr := parseSnapshotList(listFile)
+	detailRecipe, detailErr := parseSnapshotRecipe(detailFile)
+
+	recipes := listRecipes
+	if detailRecipe.ID != "" {
+		merged := false
+		for i, r := range recipes {
+			if r.ID == detailRecipe.ID {
+				recipes[i] = mergeSnapshotRecipes(r, detailRecipe)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			recipes = append([]Recipe{detailRecipe}, recipes...)
+		}
+	}
+
+	if len(recipes) == 0 {
+		return nil, errors.Join(listErr, detailErr)
+	}
+	return recipes, errors.Join(listErr, detailErr)
+}
+
+func parseSnapshotRecipe(path string) (Recipe, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Recipe{}, err
+	}
+	body := string(data)
+	recipe := Recipe{
+		Title:       extractMetaContent(body, "og:title"),
+		Description: extractMetaContent(body, "og:description"),
+		ImageURL:    extractMetaContent(body, "og:image"),
+		PrepTime:    extractFirstMatch(body, `<span>\s*([0-9]+\s*min)\s*</span>`),
+		Cuisine:     extractFirstMatch(body, `>\s*([A-Za-zÀ-ÿ'\s]+)\s*</span>\s*</div>\s*\n\s*<!--[if ENDBLOCK]><![endif]-->`),
+		Difficulty:  mapDifficulty(extractFirstMatch(body, `Difficulté:\s*([0-9]/[0-9])`)),
+		Servings:    2,
+		Tags:        []string{"HelloFresh", "Snapshot"},
+	}
+	if src := extractMetaContent(body, "og:url"); src != "" {
+		recipe.SourceURL = src
+		recipe.ID = urlToID(src)
+	}
+	recipe.Ingredients = parseSnapshotIngredients(body)
+	recipe.Steps = parseSnapshotSteps(body)
+
+	if recipe.Title == "" && recipe.Description == "" && len(recipe.Ingredients) == 0 {
+		return Recipe{}, fmt.Errorf("aucune donnée lisible dans %s", path)
+	}
+	return recipe, nil
+}
+
+func parseSnapshotList(path string) ([]Recipe, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	body := string(data)
+	cardRe := regexp.MustCompile(`(?s)<div[^>]+data-flux-card[^>]*>(.*?)</div>\s*<!--[if ENDBLOCK]><![endif]-->`)
+	anchorRe := regexp.MustCompile(`data-flux-link[^>]*href="([^"]+)"[^>]*>([^<]+)<`)
+	descRe := regexp.MustCompile(`(?s)<p[^>]*data-flux-text[^>]*>(.*?)</p>`)
+	tagRe := regexp.MustCompile(`data-flux-badge[^>]*>\s*([^<]+?)\s*</div>`)
+	imgRe := regexp.MustCompile(`<img[^>]+src="([^"]+)"[^>]*alt="([^"]*)"?`)
+	var recipes []Recipe
+	for _, match := range cardRe.FindAllStringSubmatch(body, -1) {
+		card := match[1]
+		title := ""
+		source := ""
+		if anchor := anchorRe.FindStringSubmatch(card); len(anchor) > 2 {
+			source = strings.TrimSpace(anchor[1])
+			title = normalizeSpaces(html.UnescapeString(anchor[2]))
+		}
+		if source == "" {
+			continue
+		}
+		desc := ""
+		if d := descRe.FindStringSubmatch(card); len(d) > 1 {
+			desc = normalizeSpaces(stripTags(d[1]))
+		}
+		prep := extractFirstMatch(card, `([0-9]+\s*min)`)
+		diff := mapDifficulty(extractFirstMatch(card, `([0-9]/[0-9])`))
+		image := ""
+		if img := imgRe.FindStringSubmatch(card); len(img) > 2 && strings.HasPrefix(img[1], "http") {
+			image = img[1]
+		}
+		var tags []string
+		for _, t := range tagRe.FindAllStringSubmatch(card, -1) {
+			if len(t) > 1 {
+				tags = append(tags, normalizeSpaces(t[1]))
+			}
+		}
+		recipes = append(recipes, Recipe{
+			ID:          urlToID(source),
+			Title:       title,
+			Description: desc,
+			ImageURL:    image,
+			SourceURL:   source,
+			PrepTime:    prep,
+			Difficulty:  diff,
+			Tags:        uniqueStrings(append(tags, "Snapshot")),
+			Servings:    2,
+		})
+	}
+	return recipes, nil
+}
+
+func mergeSnapshotRecipes(list Recipe, detail Recipe) Recipe {
+	out := list
+	if out.Title == "" {
+		out.Title = detail.Title
+	}
+	if out.Description == "" {
+		out.Description = detail.Description
+	}
+	if out.ImageURL == "" {
+		out.ImageURL = detail.ImageURL
+	}
+	if out.SourceURL == "" {
+		out.SourceURL = detail.SourceURL
+	}
+	if out.PrepTime == "" {
+		out.PrepTime = detail.PrepTime
+	}
+	if out.CookTime == "" {
+		out.CookTime = detail.CookTime
+	}
+	if out.TotalTime == "" {
+		out.TotalTime = detail.TotalTime
+	}
+	if out.Difficulty == "" {
+		out.Difficulty = detail.Difficulty
+	}
+	if out.Cuisine == "" {
+		out.Cuisine = detail.Cuisine
+	}
+	if len(out.Tags) == 0 {
+		out.Tags = detail.Tags
+	} else {
+		out.Tags = uniqueStrings(append(out.Tags, detail.Tags...))
+	}
+	if len(detail.Ingredients) > 0 {
+		out.Ingredients = detail.Ingredients
+	}
+	if len(detail.Steps) > 0 {
+		out.Steps = detail.Steps
+	}
+	if detail.Servings != 0 {
+		out.Servings = detail.Servings
+	}
+	return out
+}
+
+func extractMetaContent(body, property string) string {
+	re := regexp.MustCompile(fmt.Sprintf(`<meta[^>]+property=["']%s["'][^>]+content=["']([^"']+)["']`, regexp.QuoteMeta(property)))
+	match := re.FindStringSubmatch(body)
+	if len(match) > 1 {
+		return html.UnescapeString(strings.TrimSpace(match[1]))
+	}
+	return ""
+}
+
+func extractFirstMatch(body, pattern string) string {
+	re := regexp.MustCompile(pattern)
+	match := re.FindStringSubmatch(body)
+	if len(match) > 1 {
+		return normalizeSpaces(html.UnescapeString(match[1]))
+	}
+	return ""
+}
+
+func mapDifficulty(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "1/3":
+		return "Facile"
+	case "2/3":
+		return "Moyen"
+	case "3/3":
+		return "Difficile"
+	default:
+		return raw
+	}
+}
+
+func parseSnapshotIngredients(body string) []Ingredient {
+	start := strings.Index(body, ">Ingrédients<")
+	end := strings.Index(body, ">Preparation<")
+	if start == -1 || end == -1 || end <= start {
+		return nil
+	}
+	segment := body[start:end]
+	blockRe := regexp.MustCompile(`(?s)<div class="flex items-center gap-3">(.*?)</div>`)
+	textRe := regexp.MustCompile(`(?s)<p[^>]*data-flux-text[^>]*>(.*?)</p>`)
+	var ingredients []Ingredient
+	for _, block := range blockRe.FindAllString(segment, -1) {
+		matches := textRe.FindAllStringSubmatch(block, -1)
+		if len(matches) < 2 {
+			continue
+		}
+		name := normalizeSpaces(stripTags(matches[0][1]))
+		qty := normalizeSpaces(stripTags(matches[1][1]))
+		if name == "" {
+			continue
+		}
+		ingredients = append(ingredients, Ingredient{Name: name, Quantity: qty})
+	}
+	return ingredients
+}
+
+func parseSnapshotSteps(body string) []string {
+	start := strings.Index(body, ">Preparation<")
+	end := strings.Index(body, ">Nutrition")
+	if start == -1 {
+		return nil
+	}
+	if end == -1 || end < start {
+		end = len(body)
+	}
+	segment := body[start:end]
+	listRe := regexp.MustCompile(`(?s)<ul>(.*?)</ul>`)
+	itemRe := regexp.MustCompile(`(?s)<li>(.*?)</li>`)
+	var steps []string
+	for _, list := range listRe.FindAllStringSubmatch(segment, -1) {
+		raw := list[1]
+		items := itemRe.FindAllStringSubmatch(raw, -1)
+		if len(items) == 0 {
+			if text := normalizeSpaces(stripTags(raw)); text != "" {
+				steps = append(steps, text)
+			}
+			continue
+		}
+		for _, item := range items {
+			text := normalizeSpaces(stripTags(item[1]))
+			if text != "" {
+				steps = append(steps, text)
+			}
+		}
+	}
+	return steps
+}
+
+func stripTags(raw string) string {
+	re := regexp.MustCompile(`(?s)<[^>]+>`)
+	return re.ReplaceAllString(raw, " ")
+}
+
+func normalizeSpaces(s string) string {
+	s = strings.TrimSpace(s)
+	spaceRe := regexp.MustCompile(`\s+`)
+	return spaceRe.ReplaceAllString(s, " ")
 }
 
 func builtinRecipes() []Recipe {
