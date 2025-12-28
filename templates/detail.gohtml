@@ -5,11 +5,11 @@
 {{define "page_head"}}
     <style>
         body.detail-body {
-            background: #0e1624;
-            color: #0b121c;
+            background: #f5f7fb;
+            color: #0f172a;
         }
         main.detail-main {
-            max-width: 1100px;
+            max-width: 1180px;
             padding: 0;
         }
         .detail-shell {
@@ -17,11 +17,11 @@
         }
         .detail-hero {
             position: relative;
-            border-radius: 24px;
+            border-radius: 22px;
             overflow: hidden;
-            background: #0a1424;
-            box-shadow: 0 24px 80px rgba(0,0,0,0.35);
-            margin-bottom: 1.25rem;
+            background: #111827;
+            box-shadow: 0 24px 70px rgba(17, 24, 39, 0.35);
+            margin-bottom: 1.5rem;
         }
         .detail-hero .hero-image {
             height: 420px;
@@ -32,7 +32,7 @@
         .detail-hero .hero-overlay {
             position: absolute;
             inset: 0;
-            background: linear-gradient(180deg, rgba(5,7,12,0.2) 10%, rgba(5,7,12,0.7) 70%);
+            background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.65) 90%);
         }
         .detail-hero .hero-content {
             position: absolute;
@@ -50,8 +50,8 @@
             align-items: center;
             gap: 0.4rem;
             padding: 0.35rem 0.75rem;
-            background: rgba(255,255,255,0.14);
-            border: 1px solid rgba(255,255,255,0.25);
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.28);
             border-radius: 12px;
             font-weight: 700;
             font-size: 0.9rem;
@@ -70,81 +70,33 @@
         }
         .hero-meta {
             display: flex;
-            gap: 0.8rem;
+            gap: 0.9rem;
             flex-wrap: wrap;
         }
         .hero-meta .meta {
             display: inline-flex;
             align-items: center;
-            gap: 0.4rem;
+            gap: 0.45rem;
             background: rgba(255,255,255,0.12);
-            padding: 0.55rem 0.8rem;
-            border-radius: 12px;
-            font-weight: 600;
-            color: #e2e8f0;
-            border: 1px solid rgba(255,255,255,0.18);
-            backdrop-filter: blur(10px);
-        }
-        .hero-meta svg { width: 18px; height: 18px; color: #e2e8f0; }
-        .detail-actions {
-            background: #0b1525;
-            color: #e5e7eb;
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 16px;
-            padding: 1rem 1.25rem;
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            align-items: center;
-            box-shadow: 0 16px 50px rgba(0,0,0,0.25);
-        }
-        .detail-actions .stats {
-            display: flex;
-            gap: 0.65rem;
-            flex-wrap: wrap;
-        }
-        .detail-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            background: rgba(255,255,255,0.08);
-            border: 1px solid rgba(255,255,255,0.16);
             padding: 0.55rem 0.85rem;
             border-radius: 12px;
             font-weight: 600;
-            color: #e2e8f0;
-        }
-        .detail-actions .actions {
-            display: flex;
-            gap: 0.65rem;
-            flex-wrap: wrap;
-            margin-left: auto;
-        }
-        .ghost-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.75rem 1rem;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.18);
-            background: rgba(255,255,255,0.06);
             color: #e5e7eb;
-            text-decoration: none;
-            font-weight: 700;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+            border: 1px solid rgba(255,255,255,0.18);
+            backdrop-filter: blur(10px);
         }
-        .ghost-btn:hover { background: rgba(255,255,255,0.12); }
+        .hero-meta svg { width: 18px; height: 18px; color: #e5e7eb; }
         .detail-grid {
             display: grid;
-            grid-template-columns: 340px 1fr;
+            grid-template-columns: 360px 1fr;
             gap: 1.25rem;
             align-items: start;
         }
         .detail-card {
             background: #ffffff;
-            border-radius: 18px;
-            border: 1px solid #e3e6ef;
-            box-shadow: 0 20px 50px rgba(15,23,42,0.08);
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 12px 40px rgba(15,23,42,0.09);
             padding: 1.25rem 1.35rem;
             color: #0f172a;
         }
@@ -154,10 +106,10 @@
             align-items: center;
             justify-content: space-between;
             gap: 0.75rem;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.85rem;
         }
-        .card-heading .title { margin: 0; font-size: 1.15rem; }
-        .card-heading .muted { margin: 0; color: #5f6b63; }
+        .card-heading .title { margin: 0; font-size: 1.1rem; font-weight: 700; }
+        .card-heading .muted { margin: 0; color: #64748b; }
         .add-to-list {
             display: flex;
             gap: 0.6rem;
@@ -167,37 +119,40 @@
         .add-to-list label {
             font-weight: 700;
             font-size: 0.9rem;
-            color: #2f3d36;
+            color: #0f172a;
         }
         .add-to-list input[type="number"] {
             width: 90px;
             padding: 0.55rem 0.7rem;
-            border: 1px solid #d8dde7;
+            border: 1px solid #cbd5e1;
             border-radius: 10px;
         }
-        .ingredient-list { display: flex; flex-direction: column; gap: 0.65rem; }
+        .ingredient-list { display: flex; flex-direction: column; gap: 0.7rem; }
         .ingredient-row {
             display: flex;
             justify-content: space-between;
             gap: 0.8rem;
             padding: 0.75rem 0.85rem;
             border-radius: 12px;
-            background: #f6f7fb;
-            border: 1px solid #e7e9f2;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
             font-weight: 600;
         }
         .ingredient-name { color: #0f172a; }
-        .ingredient-qty { color: #4b5563; }
+        .ingredient-qty { color: #475569; }
         .tag-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.35rem; }
         .tag-row .pill {
-            background: #e8f5eb;
-            color: #16302b;
-            border: 1px solid #d1ebd8;
+            background: #e5f6ff;
+            color: #0f172a;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 0.35rem 0.65rem;
+            font-weight: 600;
         }
         .detail-stack { display: flex; flex-direction: column; gap: 1.1rem; }
         .detail-card h2, .detail-card h3 { margin-top: 0; margin-bottom: 0.4rem; }
         .detail-card p { margin-top: 0; line-height: 1.6; }
-        .detail-card .muted { color: #5f6b63; margin: 0; }
+        .detail-card .muted { color: #64748b; margin: 0; }
         .detail-steps {
             counter-reset: step;
             display: grid;
@@ -209,11 +164,10 @@
         .detail-steps li {
             position: relative;
             padding-left: 3rem;
-            background: linear-gradient(135deg, #f7f9fc, #eef3fb);
-            border: 1px solid #e3e8f3;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
             border-radius: 14px;
             padding: 1rem 1rem 1rem 3rem;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
         }
         .detail-steps li::before {
             counter-increment: step;
@@ -225,29 +179,57 @@
             width: 36px;
             height: 36px;
             border-radius: 50%;
-            background: linear-gradient(135deg, #4ade80, #22c55e);
+            background: linear-gradient(135deg, #22c55e, #16a34a);
             color: white;
             display: grid;
             place-items: center;
             font-weight: 800;
             box-shadow: 0 10px 20px rgba(34,197,94,0.25);
         }
-        .detail-steps p { margin: 0; color: #0f172a; }
-        .detail-steps strong { color: #0f172a; }
+        .meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            padding: 0.9rem 1.1rem;
+            background: #ffffff;
+            border-radius: 14px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 8px 24px rgba(15,23,42,0.05);
+            margin-bottom: 1.2rem;
+        }
+        .meta-row .meta {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: #0f172a;
+            font-weight: 600;
+        }
+        .meta-row svg { width: 18px; height: 18px; color: #475569; }
+        .meta-row .spacer { flex: 1; }
+        .hf-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.55rem 0.85rem;
+            border-radius: 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            color: #0f172a;
+            text-decoration: none;
+            font-weight: 700;
+        }
         @media (max-width: 1024px) {
             .detail-hero .hero-image { height: 360px; }
             .detail-grid { grid-template-columns: 1fr; }
             .ingredients-card { position: relative; top: 0; }
-            .detail-actions { flex-direction: column; align-items: flex-start; }
-            .detail-actions .actions { margin-left: 0; width: 100%; justify-content: flex-start; }
         }
         @media (max-width: 640px) {
             .detail-shell { padding: 0 1rem 2rem; }
             .detail-hero .hero-image { height: 280px; }
-            .add-to-list { flex-wrap: wrap; align-items: flex-start; }
-            .add-to-list button { width: 100%; }
-            .detail-steps li { padding-left: 2.8rem; }
-            .detail-steps li::before { left: 0.8rem; }
+            .meta-row { flex-direction: column; align-items: flex-start; }
+            .meta-row .spacer { display: none; }
+            .add-to-list { flex-wrap: wrap; }
         }
     </style>
 {{end}}
@@ -289,27 +271,43 @@
             </div>
         </div>
 
-        <div class="detail-actions">
-            <div class="stats">
-                {{if .Recipe.TotalTime}}<span class="detail-pill">⏱ {{.Recipe.TotalTime}}</span>{{end}}
-                {{if .Recipe.Difficulty}}<span class="detail-pill">🧩 {{.Recipe.Difficulty}}</span>{{end}}
-                {{if .Recipe.Cuisine}}<span class="detail-pill">🌍 {{.Recipe.Cuisine}}</span>{{end}}
-                <span class="detail-pill">👥 {{.Recipe.Servings}} personnes</span>
-                <span class="detail-pill">Mise à jour : {{.LastUpdated.Format "02/01/2006 15:04"}}</span>
-            </div>
-            <div class="actions">
-                <a class="ghost-btn" href="{{.Recipe.SourceURL}}" target="_blank" rel="noreferrer">
-                    Voir sur HelloFresh
-                </a>
-                <form class="add-to-list" action="/courses/ajouter" method="post">
-                    <input type="hidden" name="recipe_id" value="{{.Recipe.ID}}">
-                    <div>
-                        <label for="servings">Personnes</label>
-                        <input type="number" id="servings" name="servings" value="{{.Recipe.Servings}}" min="1" max="10">
-                    </div>
-                    <button class="btn" type="submit">Ajouter à la liste</button>
-                </form>
-            </div>
+        <div class="meta-row">
+            {{if .Recipe.TotalTime}}
+                <span class="meta">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6v6l4 2"></path><circle cx="12" cy="12" r="10"></circle></svg>
+                    {{.Recipe.TotalTime}}
+                </span>
+            {{end}}
+            {{if .Recipe.Difficulty}}
+                <span class="meta">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="13" width="9" height="4" rx="1"></rect><rect x="7" y="5" width="12" height="4" rx="1"></rect><path d="M3 3v16a2 2 0 0 0 2 2h16"></path></svg>
+                    Difficulté : {{.Recipe.Difficulty}}
+                </span>
+            {{end}}
+            {{if .Recipe.Cuisine}}
+                <span class="meta">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path></svg>
+                    {{.Recipe.Cuisine}}
+                </span>
+            {{end}}
+            <span class="meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"></path><path d="M20 21a8 8 0 1 0-16 0"></path></svg>
+                {{.Recipe.Servings}} pers.
+            </span>
+            <span class="meta">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h18"></path><path d="M9 7h6"></path><path d="M4 11h16"></path><path d="M2 15h20"></path><path d="M6 19h12"></path></svg>
+                Mise à jour : {{.LastUpdated.Format "02/01/2006 15:04"}}
+            </span>
+            <span class="spacer"></span>
+            <a class="hf-link" href="{{.Recipe.SourceURL}}" target="_blank" rel="noreferrer">Voir sur HelloFresh</a>
+            <form class="add-to-list" action="/courses/ajouter" method="post">
+                <input type="hidden" name="recipe_id" value="{{.Recipe.ID}}">
+                <div>
+                    <label for="servings">Personnes</label>
+                    <input type="number" id="servings" name="servings" value="{{.Recipe.Servings}}" min="1" max="10">
+                </div>
+                <button class="btn" type="submit">Ajouter à la liste</button>
+            </form>
         </div>
 
         <div class="detail-grid">
