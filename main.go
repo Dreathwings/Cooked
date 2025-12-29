@@ -630,7 +630,7 @@ func extractHFreshRecipeLinks(body string) []string {
 			continue
 		}
 		link := m[1]
-		if strings.HasPrefix(link, "/fr-FR/recipes/") {
+		if strings.HasPrefix(link, "/fr-FR") {
 			link = "https://hfresh.info" + link
 		}
 		if strings.HasPrefix(link, "http") && recipeURLPattern.MatchString(link) {
