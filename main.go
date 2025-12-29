@@ -22,6 +22,7 @@ import (
 
 	"cooked/pixelrender"
 	"cooked/scraper"
+	"cooked/storage"
 )
 
 //go:embed templates/*.gohtml
@@ -61,15 +62,17 @@ type ShoppingEntry struct {
 }
 
 type App struct {
-	mu          sync.RWMutex
-	recipes     []Recipe
-	shopping    map[string]ShoppingEntry
-	store       *Store
-	lastUpdated time.Time
-	scraper     *Scraper
-	templates   *template.Template
-	refreshCh   chan struct{}
-	pixelTmpl   []byte
+	mu            sync.RWMutex
+	recipes       []Recipe
+	shopping      map[string]ShoppingEntry
+	store         *storage.Store
+	lastUpdated   time.Time
+	scraper       *Scraper
+	templates     *template.Template
+	refreshCh     chan struct{}
+	pixelTmpl     []byte
+	refreshing    bool
+	refreshStatus string
 }
 
 func main() {
@@ -93,7 +96,7 @@ func main() {
 }
 
 func NewApp() *App {
-	store, err := NewStore("recipes.db")
+	store, err := storage.NewStore("recipes.db")
 	if err != nil {
 		log.Fatalf("impossible d'initialiser la base: %v", err)
 	}
@@ -139,18 +142,20 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 
 	filtered := filterRecipes(a.recipes, r.URL.Query())
 	data := map[string]any{
-		"Recipes":     filtered,
-		"Query":       r.URL.Query().Get("q"),
-		"Diet":        r.URL.Query().Get("diet"),
-		"Difficulty":  r.URL.Query().Get("difficulty"),
-		"Tag":         r.URL.Query().Get("tag"),
-		"LastUpdated": a.lastUpdated,
-		"Count":       len(filtered),
-		"AllCount":    len(a.recipes),
-		"Active":      "recettes",
-		"PageTitle":   "Recettes · Base de données HelloFresh",
-		"BodyClass":   "hf-body",
-		"MainClass":   "hf-main",
+		"Recipes":       filtered,
+		"Query":         r.URL.Query().Get("q"),
+		"Diet":          r.URL.Query().Get("diet"),
+		"Difficulty":    r.URL.Query().Get("difficulty"),
+		"Tag":           r.URL.Query().Get("tag"),
+		"LastUpdated":   a.lastUpdated,
+		"Count":         len(filtered),
+		"AllCount":      len(a.recipes),
+		"Active":        "recettes",
+		"PageTitle":     "Recettes · Base de données HelloFresh",
+		"BodyClass":     "hf-body",
+		"MainClass":     "hf-main",
+		"Refreshing":    a.refreshing,
+		"RefreshStatus": a.refreshStatus,
 	}
 	a.render(w, "recipes.gohtml", data)
 }
@@ -313,13 +318,19 @@ func (a *App) startBackgroundRefresh(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-a.refreshCh:
+				a.setRefreshState(true, "Actualisation en cours…")
 				// Utilise un contexte indépendant pour éviter d'annuler le scraping
 				// en cas de timeout trop court côté requête HTTP initiale.
 				refreshCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-				if err := a.Refresh(refreshCtx); err != nil {
-					log.Printf("Actualisation échouée : %v", err)
-				}
+				err := a.Refresh(refreshCtx)
 				cancel()
+				if err != nil {
+					status := fmt.Sprintf("Actualisation échouée : %v", err)
+					log.Print(status)
+					a.setRefreshState(false, status)
+				} else {
+					a.setRefreshState(false, fmt.Sprintf("Actualisation terminée à %s", time.Now().Format("15:04:05")))
+				}
 			}
 		}
 	}()
@@ -329,6 +340,15 @@ func (a *App) enqueueRefresh() {
 	select {
 	case a.refreshCh <- struct{}{}:
 	default:
+	}
+}
+
+func (a *App) setRefreshState(refreshing bool, status string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.refreshing = refreshing
+	if status != "" {
+		a.refreshStatus = status
 	}
 }
 
@@ -367,8 +387,13 @@ func (a *App) Refresh(ctx context.Context) error {
 		if err := a.loadFromStore(ctx); err != nil {
 			log.Printf("aucune donnée en base, fallback: %v", err)
 			recipes = builtinRecipes()
+			// We already fell back to builtins, so don't propagate an error that would be logged as a failure.
+			refreshErr = nil
+			a.persistFallbackRecipes(ctx, recipes)
 		} else {
-			return refreshErr
+			// Si la base contient déjà des recettes, on considère que l'actualisation est un succès
+			// même si aucune nouvelle recette n'a été scrapée (ex: réseau bloqué).
+			return nil
 		}
 	}
 	recipes = markWeekly(recipes)
@@ -414,6 +439,25 @@ func (a *App) loadFromStore(ctx context.Context) error {
 	a.lastUpdated = time.Now()
 	a.mu.Unlock()
 	return nil
+}
+
+func (a *App) persistFallbackRecipes(ctx context.Context, recipes []Recipe) {
+	if a.store == nil {
+		return
+	}
+	for _, rec := range recipes {
+		id := extractHFreshID(rec.SourceURL)
+		if id == "" {
+			id = rec.ID
+		}
+		if id == "" {
+			continue
+		}
+		payload := recipeToJSON(rec)
+		if err := a.store.SaveRecipe(ctx, id, rec.SourceURL, payload); err != nil {
+			log.Printf("erreur de sauvegarde fallback %s : %v", id, err)
+		}
+	}
 }
 
 func (a *App) render(w http.ResponseWriter, name string, data map[string]any) {
@@ -494,10 +538,18 @@ type Scraper struct {
 }
 
 func NewScraper(baseURL string) *Scraper {
+	useProxy := strings.EqualFold(os.Getenv("SCRAPER_USE_PROXY"), "true")
+	var proxyFunc func(*http.Request) (*url.URL, error)
+	if useProxy {
+		proxyFunc = http.ProxyFromEnvironment
+	}
 	return &Scraper{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client: &http.Client{
 			Timeout: 20 * time.Second,
+			Transport: &http.Transport{
+				Proxy: proxyFunc,
+			},
 		},
 		ua: "CookedScraper/1.0 (+https://hfresh.info)",
 	}
@@ -537,6 +589,9 @@ func (s *Scraper) gatherRecipeURLs(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	defer homeResp.Body.Close()
+	if homeResp.StatusCode < 200 || homeResp.StatusCode > 299 {
+		return nil, fmt.Errorf("listing HTTP %d pour %s", homeResp.StatusCode, s.baseURL)
+	}
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(homeResp.Body); err != nil {
 		return nil, err
@@ -1065,6 +1120,37 @@ func recipeFromPayload(id string, payload scraper.RecipeJSON) Recipe {
 		Ingredients: ingredients,
 		Steps:       steps,
 		Servings:    1,
+	}
+}
+
+func recipeToJSON(rec Recipe) scraper.RecipeJSON {
+	var ingredients []scraper.Ingredient
+	for _, ing := range rec.Ingredients {
+		ingredients = append(ingredients, scraper.Ingredient{
+			Name:  ing.Name,
+			Qty1P: ing.Quantity,
+		})
+	}
+	var steps []scraper.Step
+	for i, step := range rec.Steps {
+		steps = append(steps, scraper.Step{
+			Num:   strconv.Itoa(i + 1),
+			Title: step,
+		})
+	}
+	return scraper.RecipeJSON{
+		Title:         rec.Title,
+		RecipeName:    rec.Title,
+		RecipeNameMin: rec.Title,
+		Description:   rec.Description,
+		URL:           rec.SourceURL,
+		Image:         rec.ImageURL,
+		PrepTime:      rec.PrepTime,
+		Difficulty:    rec.Difficulty,
+		Origin:        rec.Cuisine,
+		Tags:          rec.Tags,
+		Ingredients1:  ingredients,
+		Steps:         steps,
 	}
 }
 
