@@ -137,6 +137,7 @@ func (a *App) redirectHome(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
+	a.ensureRecipesFromStore()
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
@@ -158,6 +159,18 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 		"RefreshStatus": a.refreshStatus,
 	}
 	a.render(w, "recipes.gohtml", data)
+}
+
+func (a *App) ensureRecipesFromStore() {
+	a.mu.RLock()
+	needsLoad := len(a.recipes) == 0
+	a.mu.RUnlock()
+	if !needsLoad || a.store == nil {
+		return
+	}
+	if err := a.loadFromStore(context.Background()); err != nil {
+		log.Printf("chargement des recettes en base impossible : %v", err)
+	}
 }
 
 func (a *App) weeklyHandler(w http.ResponseWriter, r *http.Request) {
