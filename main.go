@@ -368,6 +368,8 @@ func (a *App) Refresh(ctx context.Context) error {
 		if err := a.loadFromStore(ctx); err != nil {
 			log.Printf("aucune donnée en base, fallback: %v", err)
 			recipes = builtinRecipes()
+			// We already fell back to builtins, so don't propagate an error that would be logged as a failure.
+			refreshErr = nil
 		} else {
 			return refreshErr
 		}
