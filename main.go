@@ -22,6 +22,7 @@ import (
 
 	"cooked/pixelrender"
 	"cooked/scraper"
+	"cooked/storage"
 )
 
 //go:embed templates/*.gohtml
@@ -64,7 +65,7 @@ type App struct {
 	mu          sync.RWMutex
 	recipes     []Recipe
 	shopping    map[string]ShoppingEntry
-	store       *Store
+	store       *storage.Store
 	lastUpdated time.Time
 	scraper     *Scraper
 	templates   *template.Template
@@ -93,7 +94,7 @@ func main() {
 }
 
 func NewApp() *App {
-	store, err := NewStore("recipes.db")
+	store, err := storage.NewStore("recipes.db")
 	if err != nil {
 		log.Fatalf("impossible d'initialiser la base: %v", err)
 	}
