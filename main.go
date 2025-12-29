@@ -370,6 +370,7 @@ func (a *App) Refresh(ctx context.Context) error {
 			recipes = builtinRecipes()
 			// We already fell back to builtins, so don't propagate an error that would be logged as a failure.
 			refreshErr = nil
+			a.persistFallbackRecipes(ctx, recipes)
 		} else {
 			return refreshErr
 		}
@@ -417,6 +418,25 @@ func (a *App) loadFromStore(ctx context.Context) error {
 	a.lastUpdated = time.Now()
 	a.mu.Unlock()
 	return nil
+}
+
+func (a *App) persistFallbackRecipes(ctx context.Context, recipes []Recipe) {
+	if a.store == nil {
+		return
+	}
+	for _, rec := range recipes {
+		id := extractHFreshID(rec.SourceURL)
+		if id == "" {
+			id = rec.ID
+		}
+		if id == "" {
+			continue
+		}
+		payload := recipeToJSON(rec)
+		if err := a.store.SaveRecipe(ctx, id, rec.SourceURL, payload); err != nil {
+			log.Printf("erreur de sauvegarde fallback %s : %v", id, err)
+		}
+	}
 }
 
 func (a *App) render(w http.ResponseWriter, name string, data map[string]any) {
@@ -1068,6 +1088,37 @@ func recipeFromPayload(id string, payload scraper.RecipeJSON) Recipe {
 		Ingredients: ingredients,
 		Steps:       steps,
 		Servings:    1,
+	}
+}
+
+func recipeToJSON(rec Recipe) scraper.RecipeJSON {
+	var ingredients []scraper.Ingredient
+	for _, ing := range rec.Ingredients {
+		ingredients = append(ingredients, scraper.Ingredient{
+			Name:  ing.Name,
+			Qty1P: ing.Quantity,
+		})
+	}
+	var steps []scraper.Step
+	for i, step := range rec.Steps {
+		steps = append(steps, scraper.Step{
+			Num:   strconv.Itoa(i + 1),
+			Title: step,
+		})
+	}
+	return scraper.RecipeJSON{
+		Title:         rec.Title,
+		RecipeName:    rec.Title,
+		RecipeNameMin: rec.Title,
+		Description:   rec.Description,
+		URL:           rec.SourceURL,
+		Image:         rec.ImageURL,
+		PrepTime:      rec.PrepTime,
+		Difficulty:    rec.Difficulty,
+		Origin:        rec.Cuisine,
+		Tags:          rec.Tags,
+		Ingredients1:  ingredients,
+		Steps:         steps,
 	}
 }
 
