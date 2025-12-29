@@ -106,7 +106,7 @@ func NewApp() *App {
 	}
 	app := &App{
 		shopping:  make(map[string]ShoppingEntry),
-		scraper:   NewScraper("https://hfresh.info/fr-FR/recipes"),
+		scraper:   NewScraper("https://hfresh.info/fr-FR"),
 		refreshCh: make(chan struct{}, 1),
 		store:     store,
 		pixelTmpl: tmplBytes,
