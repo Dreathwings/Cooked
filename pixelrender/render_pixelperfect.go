@@ -1,24 +1,21 @@
-package main
+package pixelrender
 
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
-	"fmt"
 	"html/template"
-	"os"
 	"regexp"
 	"strings"
 )
 
-// Do NOT modify the JSON; this struct must match it.
+// RecipeJSON mirrors the scraper payload.
 type RecipeJSON struct {
-	Title       string `json:"title"`
-	RecipeName  string `json:"recipe_name"`
-	RecipeNameMin  string `json:"recipe_name_min"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-	Image       string `json:"image"`
+	Title         string `json:"title"`
+	RecipeName    string `json:"recipe_name"`
+	RecipeNameMin string `json:"recipe_name_min"`
+	Description   string `json:"description"`
+	URL           string `json:"url"`
+	Image         string `json:"image"`
 
 	PrepTime   string `json:"prep_time"`
 	Difficulty string `json:"difficulty"`
@@ -63,12 +60,12 @@ type NutritionVM struct {
 }
 
 type RecipeVM struct {
-	Title       string
-	RecipeName  string
-	RecipeNameMin  string
-	Description string
-	URL         string
-	Image       string
+	Title         string
+	RecipeName    string
+	RecipeNameMin string
+	Description   string
+	URL           string
+	Image         string
 
 	PrepTime   string
 	Difficulty string
@@ -140,11 +137,6 @@ func sanitizeJSON(b []byte) []byte {
 	return []byte(out.String())
 }
 
-func fail(stage string, err error) {
-	fmt.Fprintf(os.Stderr, "%s: %v\n", stage, err)
-	os.Exit(1)
-}
-
 var unitFromParens = regexp.MustCompile(`\(([^)]+)\)\s*$`)
 
 func inferUnit(label string) string {
@@ -180,67 +172,49 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-func main() {
-	jsonPath := flag.String("json", "", "path to json file")
-	tmplPath := flag.String("tmpl", "", "path to html template (.tmpl)")
-	outPath := flag.String("out", "", "output html file")
-	flag.Parse()
-
-	if *jsonPath == "" || *tmplPath == "" || *outPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: go run render_pixelperfect.go -json json.json -tmpl template.html.tmpl -out out.html")
-		os.Exit(2)
-	}
-
-	raw, err := os.ReadFile(*jsonPath)
-	if err != nil {
-		fail("read json", err)
-	}
-	raw = sanitizeJSON(raw)
-
-	var r RecipeJSON
-	if err := json.Unmarshal(raw, &r); err != nil {
-		fail("parse json", err)
-	}
-
+// Render builds the pixel-perfect HTML page using the provided template bytes.
+func Render(recipe RecipeJSON, tmpl []byte) ([]byte, error) {
 	vm := ViewModel{
 		Recipe: RecipeVM{
-			Title:       firstNonEmpty(r.Title, r.RecipeName),
-			RecipeName:  firstNonEmpty(r.RecipeName, r.Title),
-			RecipeNameMin:  r.RecipeNameMin,
-			Description: r.Description,
-			URL:         r.URL,
-			Image:       r.Image,
+			Title:         firstNonEmpty(recipe.Title, recipe.RecipeName),
+			RecipeName:    firstNonEmpty(recipe.RecipeName, recipe.Title),
+			RecipeNameMin: recipe.RecipeNameMin,
+			Description:   recipe.Description,
+			URL:           recipe.URL,
+			Image:         recipe.Image,
 
-			PrepTime:   r.PrepTime,
-			Difficulty: r.Difficulty,
-			Origin:     r.Origin,
+			PrepTime:   recipe.PrepTime,
+			Difficulty: recipe.Difficulty,
+			Origin:     recipe.Origin,
 
-			Tags:      r.Tags,
-			Utensils:  r.Utensils,
-			Allergens: r.Allergens,
-			Nutrition: toNutritionVM(r.Nutrition),
+			Tags:      recipe.Tags,
+			Utensils:  recipe.Utensils,
+			Allergens: recipe.Allergens,
+			Nutrition: toNutritionVM(recipe.Nutrition),
 
-			Ingredients1P: r.Ingredients1P,
-			Steps:         r.Steps,
+			Ingredients1P: recipe.Ingredients1P,
+			Steps:         recipe.Steps,
 		},
 	}
 
-	tplBytes, err := os.ReadFile(*tmplPath)
+	tpl, err := template.New("page").Option("missingkey=error").Parse(string(tmpl))
 	if err != nil {
-		fail("read template", err)
-	}
-
-	tpl, err := template.New("page").Option("missingkey=error").Parse(string(tplBytes))
-	if err != nil {
-		fail("parse template", err)
+		return nil, err
 	}
 
 	var buf bytes.Buffer
 	if err := tpl.Execute(&buf, vm); err != nil {
-		fail("execute", err)
+		return nil, err
 	}
+	return buf.Bytes(), nil
+}
 
-	if err := os.WriteFile(*outPath, buf.Bytes(), 0644); err != nil {
-		fail("write output", err)
+// ParseRecipeJSON sanitizes and unmarshals a JSON document into the expected struct.
+func ParseRecipeJSON(raw []byte) (RecipeJSON, error) {
+	raw = sanitizeJSON(raw)
+	var r RecipeJSON
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return RecipeJSON{}, err
 	}
+	return r, nil
 }
