@@ -372,7 +372,9 @@ func (a *App) Refresh(ctx context.Context) error {
 			refreshErr = nil
 			a.persistFallbackRecipes(ctx, recipes)
 		} else {
-			return refreshErr
+			// Si la base contient déjà des recettes, on considère que l'actualisation est un succès
+			// même si aucune nouvelle recette n'a été scrapée (ex: réseau bloqué).
+			return nil
 		}
 	}
 	recipes = markWeekly(recipes)
