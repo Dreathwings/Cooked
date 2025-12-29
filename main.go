@@ -519,10 +519,18 @@ type Scraper struct {
 }
 
 func NewScraper(baseURL string) *Scraper {
+	useProxy := strings.EqualFold(os.Getenv("SCRAPER_USE_PROXY"), "true")
+	var proxyFunc func(*http.Request) (*url.URL, error)
+	if useProxy {
+		proxyFunc = http.ProxyFromEnvironment
+	}
 	return &Scraper{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client: &http.Client{
 			Timeout: 20 * time.Second,
+			Transport: &http.Transport{
+				Proxy: proxyFunc,
+			},
 		},
 		ua: "CookedScraper/1.0 (+https://hfresh.info)",
 	}
@@ -562,6 +570,9 @@ func (s *Scraper) gatherRecipeURLs(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	defer homeResp.Body.Close()
+	if homeResp.StatusCode < 200 || homeResp.StatusCode > 299 {
+		return nil, fmt.Errorf("listing HTTP %d pour %s", homeResp.StatusCode, s.baseURL)
+	}
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(homeResp.Body); err != nil {
 		return nil, err
