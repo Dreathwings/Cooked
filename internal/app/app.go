@@ -51,25 +51,8 @@ type ListPageData struct {
 	PageTitle   string
 	Description string
 	Recipes     []ListRecipe
-}
-
-type RecipesPageData struct {
-	PageTitle   string
-	Description string
-	Recipes     []Recipe
-	Query       string
-	Diet        string
-	Difficulty  string
-	Tag         string
 	Page        int
 	TotalPages  int
-	View        string
-	GridURL     string
-	ListURL     string
-	Count       int
-	AllCount    int
-	LastUpdated time.Time
-	Active      string
 	PrevURL     string
 	NextURL     string
 }
@@ -157,14 +140,6 @@ func (a *App) redirectHome(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 	params := r.URL.Query()
-	query := params.Get("q")
-	diet := params.Get("diet")
-	diff := params.Get("difficulty")
-	tag := params.Get("tag")
-	view := params.Get("view")
-	if view != "list" {
-		view = "grid"
-	}
 	page := 1
 	if p, err := strconv.Atoi(params.Get("page")); err == nil && p > 0 {
 		page = p
@@ -207,34 +182,17 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 		return "/recettes?" + v.Encode()
 	}
 
-	buildViewURL := func(target string) string {
-		v := url.Values{}
-		for k, vals := range params {
-			for _, val := range vals {
-				v.Add(k, val)
-			}
-		}
-		v.Set("view", target)
-		return "/recettes?" + v.Encode()
+	var listRecipes []ListRecipe
+	for _, rcp := range visible {
+		listRecipes = append(listRecipes, toListRecipeFromRecipe(rcp))
 	}
 
-	data := RecipesPageData{
+	data := ListPageData{
 		PageTitle:   "Recettes · Base de données HelloFresh",
 		Description: fmt.Sprintf("%d recettes HelloFresh archivées", len(allRecipes)),
-		Recipes:     visible,
-		Query:       query,
-		Diet:        diet,
-		Difficulty:  diff,
-		Tag:         tag,
+		Recipes:     listRecipes,
 		Page:        page,
 		TotalPages:  totalPages,
-		View:        view,
-		GridURL:     buildViewURL("grid"),
-		ListURL:     buildViewURL("list"),
-		Count:       len(visible),
-		AllCount:    total,
-		LastUpdated: lastUpdated,
-		Active:      "recettes",
 	}
 	if page > 1 {
 		data.PrevURL = buildPageURL(page - 1)
@@ -243,7 +201,7 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 		data.NextURL = buildPageURL(page + 1)
 	}
 
-	tpl, err := template.ParseFS(templateFS, "templates/recipes.gohtml")
+	tpl, err := template.ParseFiles("template_list_pixelperfect_v1.html.tmpl")
 	if err != nil {
 		http.Error(w, "Erreur de template", http.StatusInternalServerError)
 		log.Printf("parse list template: %v", err)
@@ -540,6 +498,21 @@ func toListRecipe(doc RecipeDocument) ListRecipe {
 		Recipe_name_min: doc.RecipeNameMin,
 		Description:     doc.Description,
 		URL:             fmt.Sprintf("/recettes/%s", doc.ID),
+	}
+}
+
+func toListRecipeFromRecipe(r Recipe) ListRecipe {
+	return ListRecipe{
+		ID:              r.ID,
+		Title:           r.Title,
+		Image:           r.ImageURL,
+		HelloFreshURL:   r.SourceURL,
+		Prep_time:       r.PrepTime,
+		Difficulty:      r.Difficulty,
+		Tags:            r.Tags,
+		Recipe_name_min: r.Title,
+		Description:     r.Description,
+		URL:             fmt.Sprintf("/recettes/%s", r.ID),
 	}
 }
 
