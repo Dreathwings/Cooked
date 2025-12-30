@@ -80,100 +80,214 @@
         </form>
     </section>
 
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="text-sm font-medium text-zinc-500 dark:text-zinc-300">
+            {{.Count}} recette(s) affichée(s) sur {{.AllCount}} – 12 par page
+        </div>
+        <div class="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+            <a href="{{.GridURL}}" class="px-3 py-2 text-sm font-semibold flex items-center gap-2 {{if ne .View `list`}}bg-emerald-500 text-white{{else}}text-zinc-600 dark:text-zinc-200 bg-white dark:bg-zinc-800{{end}}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                Grille
+            </a>
+            <a href="{{.ListURL}}" class="px-3 py-2 text-sm font-semibold flex items-center gap-2 {{if eq .View `list`}}bg-emerald-500 text-white{{else}}text-zinc-600 dark:text-zinc-200 bg-white dark:bg-zinc-800{{end}}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6h11"/><path d="M9 12h11"/><path d="M9 18h11"/><path d="M4 6h.01"/><path d="M4 12h.01"/><path d="M4 18h.01"/></svg>
+                Liste
+            </a>
+        </div>
+    </div>
+
     {{if .Recipes}}
-    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {{range .Recipes}}
-        <article class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 p-4 rounded-xl shadow-sm flex flex-col gap-3">
-            <div class="relative overflow-hidden rounded-lg">
-                <div class="aspect-video w-full bg-zinc-200 dark:bg-zinc-800" style="background-image:url('{{.ImageURL}}'); background-size:cover; background-position:center;"></div>
-                <div class="absolute top-3 left-3">
-                    <span class="inline-flex items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30 px-3 py-1 text-xs font-semibold">
-                        {{if .Weekly}}Cette semaine{{else}}Recette{{end}}
-                    </span>
+    {{if eq .View "list"}}
+        <div class="grid gap-4">
+            {{range .Recipes}}
+            <article class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 p-4 rounded-xl shadow-sm flex gap-4 items-center">
+                <div class="w-40 shrink-0 rounded-lg overflow-hidden bg-zinc-200 dark:bg-zinc-800" style="background-image:url('{{.ImageURL}}'); background-size:cover; background-position:center; min-height:120px;"></div>
+                <div class="flex flex-col gap-2 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <h3 class="text-lg font-semibold text-zinc-900 dark:text-white leading-tight">{{.Title}}</h3>
+                        <span class="inline-flex items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30 px-3 py-1 text-xs font-semibold">
+                            {{if .Weekly}}Cette semaine{{else}}Recette{{end}}
+                        </span>
+                    </div>
+                    <p class="text-sm text-zinc-600 dark:text-zinc-300 line-clamp-2">{{.Description}}</p>
+                    <div class="flex flex-wrap gap-3 text-xs font-semibold text-zinc-500 dark:text-zinc-300">
+                        {{if .TotalTime}}
+                        <span class="inline-flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <path d="M12 6v6l4 2"></path>
+                            </svg>
+                            {{.TotalTime}}
+                        </span>
+                        {{end}}
+                        {{if .Difficulty}}
+                        <span class="inline-flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="m12 20-4-9 4-3 4 3-4 9Z"></path>
+                                <path d="M8.5 11h7"></path>
+                            </svg>
+                            {{.Difficulty}}
+                        </span>
+                        {{end}}
+                        {{if .PrepTime}}
+                        <span class="inline-flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M6 13h8"></path>
+                                <path d="m9 16 3-3-3-3"></path>
+                                <path d="M3 16V8"></path>
+                                <path d="M21 12a9 9 0 1 1-9-9"></path>
+                            </svg>
+                            {{.PrepTime}}
+                        </span>
+                        {{end}}
+                        {{if .CookTime}}
+                        <span class="inline-flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v2"></path>
+                                <path d="M5.2 5.2 6.6 6.6"></path>
+                                <path d="M2 12h2"></path>
+                                <path d="M5.2 18.8 6.6 17.4"></path>
+                                <path d="M12 20v2"></path>
+                                <path d="M17.4 17.4 18.8 18.8"></path>
+                                <path d="M20 12h2"></path>
+                                <path d="M17.4 6.6 18.8 5.2"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                            {{.CookTime}}
+                        </span>
+                        {{end}}
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        {{range .Tags}}<span class="inline-flex items-center rounded-full bg-zinc-100 dark:bg-zinc-800 px-3 py-1 text-xs font-semibold text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700">{{.}}</span>{{end}}
+                    </div>
+                    <div class="flex gap-2 mt-auto flex-wrap">
+                        <a href="/recettes/{{.ID}}" class="h-10 px-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200">
+                            Voir la fiche
+                        </a>
+                        {{if .SourceURL}}
+                        <a href="{{.SourceURL}}" target="_blank" rel="noopener noreferrer" class="h-10 px-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200">
+                            Voir sur HelloFresh
+                        </a>
+                        {{end}}
+                        <form class="inline" action="/courses/ajouter" method="post">
+                            <input type="hidden" name="recipe_id" value="{{.ID}}">
+                            <input type="hidden" name="servings" value="{{.Servings}}">
+                            <button class="h-10 px-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm" type="submit">Ajouter à la liste</button>
+                        </form>
+                    </div>
                 </div>
-                <div class="absolute top-3 right-3 flex gap-2">
-                    {{if .SourceURL}}
-                    <a href="{{.SourceURL}}" target="_blank" rel="noopener noreferrer" class="rounded-full p-2 transition-colors bg-white/80 text-zinc-700 hover:bg-white shadow-sm dark:bg-zinc-800/80 dark:text-zinc-200" title="Voir sur HelloFresh">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
-                            <path d="M15 3h6v6"></path>
-                            <path d="M10 14 21 3"></path>
-                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                        </svg>
-                    </a>
-                    {{end}}
-                    <a href="/recettes/{{.ID}}" class="rounded-full p-2 transition-colors bg-white/80 text-zinc-700 hover:bg-white shadow-sm dark:bg-zinc-800/80 dark:text-zinc-200" title="Détails">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
-                            <path d="M3 7v10c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V7"></path>
-                            <path d="M3 7V5a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v2H3Z"></path>
-                        </svg>
-                    </a>
+            </article>
+            {{end}}
+        </div>
+    {{else}}
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {{range .Recipes}}
+            <article class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 p-4 rounded-xl shadow-sm flex flex-col gap-3">
+                <div class="relative overflow-hidden rounded-lg">
+                    <div class="aspect-video w-full bg-zinc-200 dark:bg-zinc-800" style="background-image:url('{{.ImageURL}}'); background-size:cover; background-position:center;"></div>
+                    <div class="absolute top-3 left-3">
+                        <span class="inline-flex items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30 px-3 py-1 text-xs font-semibold">
+                            {{if .Weekly}}Cette semaine{{else}}Recette{{end}}
+                        </span>
+                    </div>
+                    <div class="absolute top-3 right-3 flex gap-2">
+                        {{if .SourceURL}}
+                        <a href="{{.SourceURL}}" target="_blank" rel="noopener noreferrer" class="rounded-full p-2 transition-colors bg-white/80 text-zinc-700 hover:bg-white shadow-sm dark:bg-zinc-800/80 dark:text-zinc-200" title="Voir sur HelloFresh">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
+                                <path d="M15 3h6v6"></path>
+                                <path d="M10 14 21 3"></path>
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                            </svg>
+                        </a>
+                        {{end}}
+                        <a href="/recettes/{{.ID}}" class="rounded-full p-2 transition-colors bg-white/80 text-zinc-700 hover:bg-white shadow-sm dark:bg-zinc-800/80 dark:text-zinc-200" title="Détails">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
+                                <path d="M3 7v10c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V7"></path>
+                                <path d="M3 7V5a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v2H3Z"></path>
+                            </svg>
+                        </a>
+                    </div>
                 </div>
-            </div>
-            <div class="flex flex-col gap-2 flex-1">
-                <h3 class="text-lg font-semibold text-zinc-900 dark:text-white leading-tight">{{.Title}}</h3>
-                <div class="flex flex-wrap gap-3 text-xs font-semibold text-zinc-500 dark:text-zinc-300">
-                    {{if .TotalTime}}
-                    <span class="inline-flex items-center gap-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <path d="M12 6v6l4 2"></path>
-                        </svg>
-                        {{.TotalTime}}
-                    </span>
-                    {{end}}
-                    {{if .Difficulty}}
-                    <span class="inline-flex items-center gap-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="m12 20-4-9 4-3 4 3-4 9Z"></path>
-                            <path d="M8.5 11h7"></path>
-                        </svg>
-                        {{.Difficulty}}
-                    </span>
-                    {{end}}
-                    {{if .PrepTime}}
-                    <span class="inline-flex items-center gap-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M6 13h8"></path>
-                            <path d="m9 16 3-3-3-3"></path>
-                            <path d="M3 16V8"></path>
-                            <path d="M21 12a9 9 0 1 1-9-9"></path>
-                        </svg>
-                        {{.PrepTime}}
-                    </span>
-                    {{end}}
-                    {{if .CookTime}}
-                    <span class="inline-flex items-center gap-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 2v2"></path>
-                            <path d="M5.2 5.2 6.6 6.6"></path>
-                            <path d="M2 12h2"></path>
-                            <path d="M5.2 18.8 6.6 17.4"></path>
-                            <path d="M12 20v2"></path>
-                            <path d="M17.4 17.4 18.8 18.8"></path>
-                            <path d="M20 12h2"></path>
-                            <path d="M17.4 6.6 18.8 5.2"></path>
-                            <circle cx="12" cy="12" r="3"></circle>
-                        </svg>
-                        {{.CookTime}}
-                    </span>
-                    {{end}}
+                <div class="flex flex-col gap-2 flex-1">
+                    <h3 class="text-lg font-semibold text-zinc-900 dark:text-white leading-tight">{{.Title}}</h3>
+                    <div class="flex flex-wrap gap-3 text-xs font-semibold text-zinc-500 dark:text-zinc-300">
+                        {{if .TotalTime}}
+                        <span class="inline-flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <path d="M12 6v6l4 2"></path>
+                            </svg>
+                            {{.TotalTime}}
+                        </span>
+                        {{end}}
+                        {{if .Difficulty}}
+                        <span class="inline-flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="m12 20-4-9 4-3 4 3-4 9Z"></path>
+                                <path d="M8.5 11h7"></path>
+                            </svg>
+                            {{.Difficulty}}
+                        </span>
+                        {{end}}
+                        {{if .PrepTime}}
+                        <span class="inline-flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M6 13h8"></path>
+                                <path d="m9 16 3-3-3-3"></path>
+                                <path d="M3 16V8"></path>
+                                <path d="M21 12a9 9 0 1 1-9-9"></path>
+                            </svg>
+                            {{.PrepTime}}
+                        </span>
+                        {{end}}
+                        {{if .CookTime}}
+                        <span class="inline-flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v2"></path>
+                                <path d="M5.2 5.2 6.6 6.6"></path>
+                                <path d="M2 12h2"></path>
+                                <path d="M5.2 18.8 6.6 17.4"></path>
+                                <path d="M12 20v2"></path>
+                                <path d="M17.4 17.4 18.8 18.8"></path>
+                                <path d="M20 12h2"></path>
+                                <path d="M17.4 6.6 18.8 5.2"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                            {{.CookTime}}
+                        </span>
+                        {{end}}
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        {{range .Tags}}<span class="inline-flex items-center rounded-full bg-zinc-100 dark:bg-zinc-800 px-3 py-1 text-xs font-semibold text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700">{{.}}</span>{{end}}
+                    </div>
+                    <div class="flex gap-2 mt-auto flex-wrap">
+                        <a href="/recettes/{{.ID}}" class="h-10 px-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200">
+                            Voir la fiche
+                        </a>
+                        <form class="inline" action="/courses/ajouter" method="post">
+                            <input type="hidden" name="recipe_id" value="{{.ID}}">
+                            <input type="hidden" name="servings" value="{{.Servings}}">
+                            <button class="h-10 px-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm" type="submit">Ajouter à la liste</button>
+                        </form>
+                    </div>
                 </div>
-                <div class="flex flex-wrap gap-2">
-                    {{range .Tags}}<span class="inline-flex items-center rounded-full bg-zinc-100 dark:bg-zinc-800 px-3 py-1 text-xs font-semibold text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700">{{.}}</span>{{end}}
-                </div>
-                <div class="flex gap-2 mt-auto flex-wrap">
-                    <a href="/recettes/{{.ID}}" class="h-10 px-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200">
-                        Voir la fiche
-                    </a>
-                    <form class="inline" action="/courses/ajouter" method="post">
-                        <input type="hidden" name="recipe_id" value="{{.ID}}">
-                        <input type="hidden" name="servings" value="{{.Servings}}">
-                        <button class="h-10 px-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm" type="submit">Ajouter à la liste</button>
-                    </form>
-                </div>
-            </div>
-        </article>
-        {{end}}
+            </article>
+            {{end}}
+        </div>
+    {{end}}
+
+    <div class="flex items-center justify-between flex-wrap gap-3 mt-6">
+        <div class="text-sm text-zinc-500 dark:text-zinc-300">
+            Page {{.Page}} / {{.TotalPages}}
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="{{if .PrevURL}}{{.PrevURL}}{{else}}#{{end}}" class="h-10 px-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold border border-zinc-200 dark:border-zinc-700 {{if .PrevURL}}text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700{{else}}text-zinc-400 dark:text-zinc-600 cursor-not-allowed bg-zinc-100 dark:bg-zinc-800{{end}}">
+                Précédent
+            </a>
+            <a href="{{if .NextURL}}{{.NextURL}}{{else}}#{{end}}" class="h-10 px-4 inline-flex items-center justify-center rounded-lg text-sm font-semibold border border-zinc-200 dark:border-zinc-700 {{if .NextURL}}text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700{{else}}text-zinc-400 dark:text-zinc-600 cursor-not-allowed bg-zinc-100 dark:bg-zinc-800{{end}}">
+                Suivant
+            </a>
+        </div>
     </div>
     {{else}}
     <div class="flex items-center justify-center rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-300 p-10 text-center">

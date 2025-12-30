@@ -53,6 +53,27 @@ type ListPageData struct {
 	Recipes     []ListRecipe
 }
 
+type RecipesPageData struct {
+	PageTitle   string
+	Description string
+	Recipes     []Recipe
+	Query       string
+	Diet        string
+	Difficulty  string
+	Tag         string
+	Page        int
+	TotalPages  int
+	View        string
+	GridURL     string
+	ListURL     string
+	Count       int
+	AllCount    int
+	LastUpdated time.Time
+	Active      string
+	PrevURL     string
+	NextURL     string
+}
+
 type ListRecipe struct {
 	ID              string
 	Title           string
@@ -135,26 +156,94 @@ func (a *App) redirectHome(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	docs, err := a.store.ListRecipes(ctx)
-	if err != nil {
-		http.Error(w, "Erreur base de données", http.StatusInternalServerError)
-		log.Printf("list recipes: %v", err)
-		return
+	params := r.URL.Query()
+	query := params.Get("q")
+	diet := params.Get("diet")
+	diff := params.Get("difficulty")
+	tag := params.Get("tag")
+	view := params.Get("view")
+	if view != "list" {
+		view = "grid"
+	}
+	page := 1
+	if p, err := strconv.Atoi(params.Get("page")); err == nil && p > 0 {
+		page = p
 	}
 
-	var items []ListRecipe
-	for _, doc := range docs {
-		items = append(items, toListRecipe(doc))
+	a.mu.RLock()
+	allRecipes := append([]Recipe(nil), a.recipes...)
+	lastUpdated := a.lastUpdated
+	a.mu.RUnlock()
+
+	filtered := filterRecipes(allRecipes, params)
+
+	const pageSize = 12
+	total := len(filtered)
+	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	start := (page - 1) * pageSize
+	if start < 0 {
+		start = 0
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	visible := filtered[start:end]
+
+	buildPageURL := func(target int) string {
+		v := url.Values{}
+		for k, vals := range params {
+			for _, val := range vals {
+				v.Add(k, val)
+			}
+		}
+		v.Set("page", strconv.Itoa(target))
+		return "/recettes?" + v.Encode()
 	}
 
-	data := ListPageData{
+	buildViewURL := func(target string) string {
+		v := url.Values{}
+		for k, vals := range params {
+			for _, val := range vals {
+				v.Add(k, val)
+			}
+		}
+		v.Set("view", target)
+		return "/recettes?" + v.Encode()
+	}
+
+	data := RecipesPageData{
 		PageTitle:   "Recettes · Base de données HelloFresh",
-		Description: fmt.Sprintf("%d recettes HelloFresh archivées", len(items)),
-		Recipes:     items,
+		Description: fmt.Sprintf("%d recettes HelloFresh archivées", len(allRecipes)),
+		Recipes:     visible,
+		Query:       query,
+		Diet:        diet,
+		Difficulty:  diff,
+		Tag:         tag,
+		Page:        page,
+		TotalPages:  totalPages,
+		View:        view,
+		GridURL:     buildViewURL("grid"),
+		ListURL:     buildViewURL("list"),
+		Count:       len(visible),
+		AllCount:    total,
+		LastUpdated: lastUpdated,
+		Active:      "recettes",
+	}
+	if page > 1 {
+		data.PrevURL = buildPageURL(page - 1)
+	}
+	if page < totalPages {
+		data.NextURL = buildPageURL(page + 1)
 	}
 
-	tpl, err := template.ParseFiles("template_list_pixelperfect_v1.html.tmpl")
+	tpl, err := template.ParseFS(templateFS, "templates/recipes.gohtml")
 	if err != nil {
 		http.Error(w, "Erreur de template", http.StatusInternalServerError)
 		log.Printf("parse list template: %v", err)
