@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -48,8 +51,56 @@ CREATE TABLE IF NOT EXISTS recipes (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 `
-	_, err := db.Exec(ddl)
-	return err
+	if _, err := db.Exec(ddl); err != nil {
+		return err
+	}
+
+	columns, err := listColumns(db, "recipes")
+	if err != nil {
+		return err
+	}
+
+	required := []string{"id", "title", "recipe_name", "recipe_name_min", "description", "url", "image", "prep_time", "difficulty", "origin", "tags", "utensils", "allergens", "nutrition", "ingredients", "steps", "updated_at"}
+	missing := missingColumns(columns, required)
+	if len(missing) == 0 {
+		return nil
+	}
+
+	log.Printf("migration: detected missing columns in recipes table: %s; rebuilding table", strings.Join(missing, ", "))
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE recipes RENAME TO recipes_old`); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(ddl); err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	var selectExprs []string
+	for _, col := range required {
+		if columns[col] {
+			selectExprs = append(selectExprs, col)
+		} else {
+			selectExprs = append(selectExprs, fmt.Sprintf("'' AS %s", col))
+		}
+	}
+
+	insertQuery := fmt.Sprintf("INSERT INTO recipes (%s) SELECT %s FROM recipes_old", strings.Join(required, ", "), strings.Join(selectExprs, ", "))
+	if _, err := tx.Exec(insertQuery); err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	if _, err := tx.Exec(`DROP TABLE recipes_old`); err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (s *RecipeStore) ReplaceAll(ctx context.Context, recipes []RecipeDocument) error {
@@ -140,4 +191,35 @@ func (s *RecipeStore) Close() error {
 		return errors.New("store not initialised")
 	}
 	return s.db.Close()
+}
+
+func listColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cols := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return nil, err
+		}
+		cols[name] = true
+	}
+	return cols, rows.Err()
+}
+
+func missingColumns(existing map[string]bool, required []string) []string {
+	var missing []string
+	for _, col := range required {
+		if !existing[col] {
+			missing = append(missing, col)
+		}
+	}
+	return missing
 }
