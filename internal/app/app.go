@@ -346,12 +346,28 @@ func (a *App) removeShoppingHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) refreshHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Redirect(w, r, "/recettes", http.StatusSeeOther)
-		return
+	switch r.Method {
+	case http.MethodPost:
+		a.enqueueRefresh()
+		http.Redirect(w, r, "/refresh?status=queued", http.StatusSeeOther)
+	case http.MethodGet:
+		a.mu.RLock()
+		count := len(a.recipes)
+		lastUpdated := a.lastUpdated
+		a.mu.RUnlock()
+
+		data := map[string]any{
+			"PageTitle":   "Actualiser les recettes",
+			"Description": "Lancer un scraping des recettes HelloFresh",
+			"Count":       count,
+			"LastUpdated": lastUpdated,
+			"Status":      r.URL.Query().Get("status"),
+			"Active":      "refresh",
+		}
+		a.render(w, "refresh.gohtml", data)
+	default:
+		http.Error(w, "Méthode non autorisée", http.StatusMethodNotAllowed)
 	}
-	a.enqueueRefresh()
-	http.Redirect(w, r, "/recettes?refresh=en-cours", http.StatusSeeOther)
 }
 
 func (a *App) startBackgroundRefresh(ctx context.Context) {
