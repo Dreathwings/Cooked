@@ -316,7 +316,7 @@ func (a *App) startBackgroundRefresh(ctx context.Context) {
 			case <-a.refreshCh:
 				// Utilise un contexte indépendant pour éviter d'annuler le scraping
 				// en cas de timeout trop court côté requête HTTP initiale.
-				refreshCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				refreshCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 				if err := a.Refresh(refreshCtx); err != nil {
 					log.Printf("Actualisation échouée : %v", err)
 				}
@@ -343,7 +343,16 @@ func (a *App) Refresh(ctx context.Context) error {
 
 	var docs []RecipeDocument
 	for _, u := range urls {
-		doc, scrapeErr := ScrapeRecipe(ctx, u)
+		select {
+		case <-ctx.Done():
+			log.Printf("refresh interrompue (timeout) après %d recettes", len(docs))
+			break
+		default:
+		}
+
+		reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		doc, scrapeErr := ScrapeRecipe(reqCtx, u)
+		cancel()
 		if scrapeErr != nil {
 			log.Printf("scrape %s: %v", u, scrapeErr)
 			continue
@@ -358,10 +367,19 @@ func (a *App) Refresh(ctx context.Context) error {
 	}
 
 	if len(docs) == 0 {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return errors.New("aucune recette récupérée")
 	}
 
-	if err := a.store.ReplaceAll(ctx, docs); err != nil {
+	storeCtx := ctx
+	if ctx.Err() != nil {
+		log.Printf("refresh timeout atteint, enregistrement des %d recettes collectées", len(docs))
+		storeCtx = context.Background()
+	}
+
+	if err := a.store.ReplaceAll(storeCtx, docs); err != nil {
 		return err
 	}
 
