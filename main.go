@@ -47,6 +47,25 @@ type Ingredient struct {
 	Quantity string
 }
 
+type ListPageData struct {
+	PageTitle   string
+	Description string
+	Recipes     []ListRecipe
+}
+
+type ListRecipe struct {
+	ID              string
+	Title           string
+	Image           string
+	HelloFreshURL   string
+	Prep_time       string
+	Difficulty      string
+	Tags            []string
+	Recipe_name_min string
+	Description     string
+	URL             string
+}
+
 type ShoppingEntry struct {
 	RecipeID    string
 	Title       string
@@ -59,8 +78,7 @@ type App struct {
 	recipes     []Recipe
 	shopping    map[string]ShoppingEntry
 	lastUpdated time.Time
-	scraper     *Scraper
-	templates   *template.Template
+	store       *RecipeStore
 	refreshCh   chan struct{}
 }
 
@@ -68,7 +86,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app := NewApp()
-	app.loadBuiltins()
+	app.loadFromStore(ctx)
 	app.startBackgroundRefresh(ctx)
 	app.enqueueRefresh()
 
@@ -86,9 +104,13 @@ func main() {
 }
 
 func NewApp() *App {
+	store, err := OpenRecipeStore("recipes.db")
+	if err != nil {
+		log.Fatalf("impossible d'ouvrir la base : %v", err)
+	}
 	return &App{
 		shopping:  make(map[string]ShoppingEntry),
-		scraper:   NewScraper("https://hfresh.info/fr-FR"),
+		store:     store,
 		refreshCh: make(chan struct{}, 1),
 	}
 }
@@ -113,25 +135,37 @@ func (a *App) redirectHome(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	filtered := filterRecipes(a.recipes, r.URL.Query())
-	data := map[string]any{
-		"Recipes":     filtered,
-		"Query":       r.URL.Query().Get("q"),
-		"Diet":        r.URL.Query().Get("diet"),
-		"Difficulty":  r.URL.Query().Get("difficulty"),
-		"Tag":         r.URL.Query().Get("tag"),
-		"LastUpdated": a.lastUpdated,
-		"Count":       len(filtered),
-		"AllCount":    len(a.recipes),
-		"Active":      "recettes",
-		"PageTitle":   "Recettes · Base de données HelloFresh",
-		"BodyClass":   "hf-body",
-		"MainClass":   "hf-main",
+	ctx := r.Context()
+	docs, err := a.store.ListRecipes(ctx)
+	if err != nil {
+		http.Error(w, "Erreur base de données", http.StatusInternalServerError)
+		log.Printf("list recipes: %v", err)
+		return
 	}
-	a.render(w, "recipes.gohtml", data)
+
+	var items []ListRecipe
+	for _, doc := range docs {
+		items = append(items, toListRecipe(doc))
+	}
+
+	data := ListPageData{
+		PageTitle:   "Recettes · Base de données HelloFresh",
+		Description: fmt.Sprintf("%d recettes HelloFresh archivées", len(items)),
+		Recipes:     items,
+	}
+
+	tpl, err := template.ParseFiles("template_list_pixelperfect_v1.html.tmpl")
+	if err != nil {
+		http.Error(w, "Erreur de template", http.StatusInternalServerError)
+		log.Printf("parse list template: %v", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tpl.Execute(w, data); err != nil {
+		http.Error(w, "Erreur de rendu", http.StatusInternalServerError)
+		log.Printf("execute list template: %v", err)
+		return
+	}
 }
 
 func (a *App) weeklyHandler(w http.ResponseWriter, r *http.Request) {
@@ -158,20 +192,23 @@ func (a *App) recipeDetailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/recettes/")
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	for _, recipe := range a.recipes {
-		if recipe.ID == id {
-			data := map[string]any{
-				"Recipe":      recipe,
-				"LastUpdated": a.lastUpdated,
-				"Active":      "recettes",
-			}
-			a.render(w, "detail.gohtml", data)
-			return
-		}
+	doc, err := a.store.GetRecipe(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
 	}
-	http.NotFound(w, r)
+	vm := BuildDetailViewModel(doc)
+	tpl, err := template.ParseFiles("template_pixelperfect_v2.html.tmpl")
+	if err != nil {
+		http.Error(w, "Erreur de template", http.StatusInternalServerError)
+		log.Printf("parse detail template: %v", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tpl.Execute(w, vm); err != nil {
+		http.Error(w, "Erreur de rendu", http.StatusInternalServerError)
+		log.Printf("execute detail template: %v", err)
+	}
 }
 
 func (a *App) shoppingHandler(w http.ResponseWriter, r *http.Request) {
@@ -297,40 +334,67 @@ func (a *App) enqueueRefresh() {
 }
 
 func (a *App) Refresh(ctx context.Context) error {
-	recipes, err := a.scraper.FetchAll(ctx)
-	if err != nil || len(recipes) == 0 {
-		snapshots, snapErr := loadSnapshotRecipes()
-		baseErr := err
-		if baseErr == nil {
-			baseErr = errors.New("aucune recette récupérée")
-		}
+	const baseURL = "https://hfresh.info/fr-FR"
 
-		if len(snapshots) > 0 {
-			recipes = markWeekly(snapshots)
-			err = errors.Join(baseErr, snapErr)
-			if err == nil {
-				err = errors.New("utilisation du snapshot local")
-			}
-		} else {
-			recipes = builtinRecipes()
-			err = errors.Join(baseErr, snapErr)
-			if err == nil {
-				err = errors.New("retombé sur les recettes intégrées")
-			} else {
-				err = fmt.Errorf("%w ; recettes intégrées utilisées", err)
-			}
-		}
+	urls, err := FetchRecipeURLs(ctx, baseURL, 50, 300*time.Millisecond)
+	if err != nil {
+		return err
 	}
+
+	var docs []RecipeDocument
+	for _, u := range urls {
+		doc, scrapeErr := ScrapeRecipe(ctx, u)
+		if scrapeErr != nil {
+			log.Printf("scrape %s: %v", u, scrapeErr)
+			continue
+		}
+		if doc.ID == "" {
+			doc.ID = urlToID(u)
+		}
+		if doc.URL == "" {
+			doc.URL = u
+		}
+		docs = append(docs, doc)
+	}
+
+	if len(docs) == 0 {
+		return errors.New("aucune recette récupérée")
+	}
+
+	if err := a.store.ReplaceAll(ctx, docs); err != nil {
+		return err
+	}
+
 	a.mu.Lock()
-	a.recipes = recipes
+	a.recipes = docsToLegacy(docs)
 	a.lastUpdated = time.Now()
 	a.mu.Unlock()
-	return err
+	return nil
 }
 
 func (a *App) loadBuiltins() {
 	a.mu.Lock()
 	a.recipes = builtinRecipes()
+	a.lastUpdated = time.Now()
+	a.mu.Unlock()
+}
+
+func (a *App) loadFromStore(ctx context.Context) {
+	docs, err := a.store.ListRecipes(ctx)
+	if err != nil {
+		log.Printf("lecture initiale base: %v", err)
+		a.loadBuiltins()
+		return
+	}
+	if len(docs) == 0 {
+		builtin := builtinRecipes()
+		docs = legacyToDocs(builtin)
+		if err := a.store.ReplaceAll(ctx, docs); err != nil {
+			log.Printf("écriture des recettes intégrées: %v", err)
+		}
+	}
+	a.mu.Lock()
+	a.recipes = docsToLegacy(docs)
 	a.lastUpdated = time.Now()
 	a.mu.Unlock()
 }
@@ -353,6 +417,109 @@ func (a *App) render(w http.ResponseWriter, name string, data map[string]any) {
 	if _, err := buf.WriteTo(w); err != nil {
 		log.Printf("erreur d'écriture : %v", err)
 	}
+}
+
+func toListRecipe(doc RecipeDocument) ListRecipe {
+	return ListRecipe{
+		ID:              doc.ID,
+		Title:           firstNonEmpty(doc.RecipeName, doc.Title),
+		Image:           doc.Image,
+		HelloFreshURL:   doc.URL,
+		Prep_time:       doc.PrepTime,
+		Difficulty:      doc.Difficulty,
+		Tags:            doc.Tags,
+		Recipe_name_min: doc.RecipeNameMin,
+		Description:     doc.Description,
+		URL:             fmt.Sprintf("/recettes/%s", doc.ID),
+	}
+}
+
+func docsToLegacy(docs []RecipeDocument) []Recipe {
+	out := make([]Recipe, 0, len(docs))
+	for _, doc := range docs {
+		out = append(out, Recipe{
+			ID:          doc.ID,
+			Title:       firstNonEmpty(doc.RecipeName, doc.Title),
+			Description: doc.Description,
+			ImageURL:    doc.Image,
+			SourceURL:   doc.URL,
+			PrepTime:    doc.PrepTime,
+			Difficulty:  doc.Difficulty,
+			Tags:        doc.Tags,
+			Ingredients: convertIngredients(doc.Ingredients1P),
+			Steps:       convertSteps(doc.Steps),
+			Servings:    2,
+		})
+	}
+	return out
+}
+
+func legacyToDocs(recipes []Recipe) []RecipeDocument {
+	out := make([]RecipeDocument, 0, len(recipes))
+	for _, r := range recipes {
+		out = append(out, RecipeDocument{
+			ID:            r.ID,
+			Title:         r.Title,
+			RecipeName:    r.Title,
+			RecipeNameMin: r.Title,
+			Description:   r.Description,
+			URL:           r.SourceURL,
+			Image:         r.ImageURL,
+			PrepTime:      r.PrepTime,
+			Difficulty:    r.Difficulty,
+			Tags:          r.Tags,
+			Ingredients1P: convertIngredientsToScraped(r.Ingredients),
+			Steps:         convertStepsToScraped(r.Steps),
+		})
+	}
+	return out
+}
+
+func convertIngredients(in []ScrapedIngredient) []Ingredient {
+	out := make([]Ingredient, 0, len(in))
+	for _, ing := range in {
+		out = append(out, Ingredient{
+			Name:     ing.Name,
+			Quantity: ing.Qty1P,
+		})
+	}
+	return out
+}
+
+func convertIngredientsToScraped(in []Ingredient) []ScrapedIngredient {
+	out := make([]ScrapedIngredient, 0, len(in))
+	for _, ing := range in {
+		out = append(out, ScrapedIngredient{
+			Name:  ing.Name,
+			Qty1P: ing.Quantity,
+		})
+	}
+	return out
+}
+
+func convertSteps(steps []ScrapedStep) []string {
+	var out []string
+	for _, step := range steps {
+		text := strings.TrimSpace(step.Title)
+		if text == "" && len(step.Bullets) > 0 {
+			text = step.Bullets[0]
+		}
+		if text != "" {
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
+func convertStepsToScraped(steps []string) []ScrapedStep {
+	out := make([]ScrapedStep, 0, len(steps))
+	for i, s := range steps {
+		out = append(out, ScrapedStep{
+			Num:   strconv.Itoa(i + 1),
+			Title: s,
+		})
+	}
+	return out
 }
 
 func filterRecipes(recipes []Recipe, params url.Values) []Recipe {
