@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,8 @@ import (
 
 //go:embed templates/*.gohtml
 var templateFS embed.FS
+
+var minuteRe = regexp.MustCompile(`\d+`)
 
 type Recipe struct {
 	ID          string
@@ -48,13 +51,23 @@ type Ingredient struct {
 }
 
 type ListPageData struct {
-	PageTitle   string
-	Description string
-	Recipes     []ListRecipe
-	Page        int
-	TotalPages  int
-	PrevURL     string
-	NextURL     string
+	PageTitle             string
+	Description           string
+	Recipes               []ListRecipe
+	Page                  int
+	TotalPages            int
+	PrevURL               string
+	NextURL               string
+	TotalRecipes          int
+	FilteredCount         int
+	Query                 string
+	Diet                  string
+	Difficulty            string
+	Tag                   string
+	Sort                  string
+	AvailableDiets        []string
+	AvailableTags         []string
+	AvailableDifficulties []string
 }
 
 type ListRecipe struct {
@@ -92,7 +105,6 @@ func Run() {
 	app := NewApp()
 	app.loadFromStore(ctx)
 	app.startBackgroundRefresh(ctx)
-	app.enqueueRefresh()
 
 	server := &http.Server{
 		Addr:         ":3044",
@@ -144,12 +156,15 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 	if p, err := strconv.Atoi(params.Get("page")); err == nil && p > 0 {
 		page = p
 	}
+	sortKey := sanitizeSort(params.Get("sort"))
 
 	a.mu.RLock()
 	allRecipes := append([]Recipe(nil), a.recipes...)
 	a.mu.RUnlock()
 
+	availableDiets, availableTags, availableDifficulties := collectFacets(allRecipes)
 	filtered := filterRecipes(allRecipes, params)
+	filtered = sortRecipes(filtered, sortKey)
 
 	const pageSize = 12
 	total := len(filtered)
@@ -187,11 +202,21 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := ListPageData{
-		PageTitle:   "Recettes · Base de données HelloFresh",
-		Description: fmt.Sprintf("%d recettes HelloFresh archivées", len(allRecipes)),
-		Recipes:     listRecipes,
-		Page:        page,
-		TotalPages:  totalPages,
+		PageTitle:             "Recettes · Base de données HelloFresh",
+		Description:           fmt.Sprintf("%d recettes HelloFresh archivées", len(allRecipes)),
+		Recipes:               listRecipes,
+		Page:                  page,
+		TotalPages:            totalPages,
+		TotalRecipes:          len(allRecipes),
+		FilteredCount:         len(filtered),
+		Query:                 params.Get("q"),
+		Diet:                  params.Get("diet"),
+		Difficulty:            params.Get("difficulty"),
+		Tag:                   params.Get("tag"),
+		Sort:                  sortKey,
+		AvailableDiets:        availableDiets,
+		AvailableTags:         availableTags,
+		AvailableDifficulties: availableDifficulties,
 	}
 	if page > 1 {
 		data.PrevURL = buildPageURL(page - 1)
@@ -376,13 +401,9 @@ func (a *App) startBackgroundRefresh(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-a.refreshCh:
-				// Utilise un contexte indépendant pour éviter d'annuler le scraping
-				// en cas de timeout trop court côté requête HTTP initiale.
-				refreshCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-				if err := a.Refresh(refreshCtx); err != nil {
+				if err := a.Refresh(context.Background()); err != nil {
 					log.Printf("Actualisation échouée : %v", err)
 				}
-				cancel()
 			}
 		}
 	}()
@@ -642,6 +663,125 @@ func filterRecipes(recipes []Recipe, params url.Values) []Recipe {
 		filtered = append(filtered, recipe)
 	}
 	return filtered
+}
+
+func collectFacets(recipes []Recipe) (diets, tags, difficulties []string) {
+	dietSet := make(map[string]string)
+	tagSet := make(map[string]string)
+	diffSet := make(map[string]string)
+
+	for _, recipe := range recipes {
+		if d := strings.TrimSpace(recipe.Difficulty); d != "" {
+			key := strings.ToLower(d)
+			if _, ok := diffSet[key]; !ok {
+				diffSet[key] = d
+			}
+		}
+		for _, tag := range recipe.Tags {
+			clean := strings.TrimSpace(tag)
+			if clean == "" {
+				continue
+			}
+			key := strings.ToLower(clean)
+			if _, ok := tagSet[key]; !ok {
+				tagSet[key] = clean
+			}
+			if _, ok := dietSet[key]; !ok {
+				dietSet[key] = clean
+			}
+		}
+	}
+
+	diets = sortFacetValues(dietSet)
+	tags = sortFacetValues(tagSet)
+	difficulties = sortFacetValues(diffSet)
+	return
+}
+
+func sortFacetValues(set map[string]string) []string {
+	values := make([]string, 0, len(set))
+	for _, v := range set {
+		values = append(values, v)
+	}
+	sort.Slice(values, func(i, j int) bool {
+		return strings.ToLower(values[i]) < strings.ToLower(values[j])
+	})
+	return values
+}
+
+func sanitizeSort(raw string) string {
+	switch raw {
+	case "title-desc", "prep-asc", "prep-desc", "difficulty-asc", "difficulty-desc":
+		return raw
+	default:
+		return "title-asc"
+	}
+}
+
+func sortRecipes(recipes []Recipe, sortKey string) []Recipe {
+	out := append([]Recipe(nil), recipes...)
+	switch sortKey {
+	case "title-desc":
+		sort.SliceStable(out, func(i, j int) bool {
+			return strings.ToLower(out[i].Title) > strings.ToLower(out[j].Title)
+		})
+	case "prep-asc":
+		sort.SliceStable(out, func(i, j int) bool {
+			return recipeDuration(out[i]) < recipeDuration(out[j])
+		})
+	case "prep-desc":
+		sort.SliceStable(out, func(i, j int) bool {
+			return recipeDuration(out[i]) > recipeDuration(out[j])
+		})
+	case "difficulty-asc":
+		sort.SliceStable(out, func(i, j int) bool {
+			return difficultyValue(out[i].Difficulty) < difficultyValue(out[j].Difficulty)
+		})
+	case "difficulty-desc":
+		sort.SliceStable(out, func(i, j int) bool {
+			return difficultyValue(out[i].Difficulty) > difficultyValue(out[j].Difficulty)
+		})
+	default:
+		sort.SliceStable(out, func(i, j int) bool {
+			return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
+		})
+	}
+	return out
+}
+
+func recipeDuration(recipe Recipe) int {
+	if total := minutesFromText(recipe.TotalTime); total > 0 {
+		return total
+	}
+	if prep := minutesFromText(recipe.PrepTime); prep > 0 {
+		return prep
+	}
+	return math.MaxInt32
+}
+
+func minutesFromText(text string) int {
+	match := minuteRe.FindString(text)
+	if match == "" {
+		return 0
+	}
+	val, err := strconv.Atoi(match)
+	if err != nil {
+		return 0
+	}
+	return val
+}
+
+func difficultyValue(input string) int {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "facile":
+		return 0
+	case "moyen", "moyenne", "intermédiaire", "intermediaire":
+		return 1
+	case "difficile":
+		return 2
+	default:
+		return 3
+	}
 }
 
 func containsFold(list []string, q string) bool {
