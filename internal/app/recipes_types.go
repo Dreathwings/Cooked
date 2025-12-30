@@ -1,4 +1,4 @@
-package main
+package app
 
 type ScrapedIngredient struct {
 	Name  string `json:"name"`
