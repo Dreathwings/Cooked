@@ -14,7 +14,8 @@ import (
 )
 
 type RecipeStore struct {
-	db *sql.DB
+	db          *sql.DB
+	reseededDDL bool
 }
 
 func OpenRecipeStore(path string) (*RecipeStore, error) {
@@ -23,13 +24,14 @@ func OpenRecipeStore(path string) (*RecipeStore, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if err := migrate(db); err != nil {
+	store := &RecipeStore{db: db}
+	if err := store.migrate(); err != nil {
 		return nil, err
 	}
-	return &RecipeStore{db: db}, nil
+	return store, nil
 }
 
-func migrate(db *sql.DB) error {
+func (s *RecipeStore) migrate() error {
 	const ddl = `
 CREATE TABLE IF NOT EXISTS recipes (
   id TEXT PRIMARY KEY,
@@ -51,11 +53,11 @@ CREATE TABLE IF NOT EXISTS recipes (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 `
-	if _, err := db.Exec(ddl); err != nil {
+	if _, err := s.db.Exec(ddl); err != nil {
 		return err
 	}
 
-	columns, err := listColumns(db, "recipes")
+	columns, err := listColumns(s.db, "recipes")
 	if err != nil {
 		return err
 	}
@@ -67,7 +69,7 @@ CREATE TABLE IF NOT EXISTS recipes (
 	}
 
 	log.Printf("migration: detected missing columns in recipes table: %s; rebuilding table", strings.Join(missing, ", "))
-	tx, err := db.Begin()
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
@@ -100,6 +102,7 @@ CREATE TABLE IF NOT EXISTS recipes (
 		return err
 	}
 
+	s.reseededDDL = true
 	return tx.Commit()
 }
 
@@ -191,6 +194,10 @@ func (s *RecipeStore) Close() error {
 		return errors.New("store not initialised")
 	}
 	return s.db.Close()
+}
+
+func (s *RecipeStore) NeedsReseed() bool {
+	return s.reseededDDL
 }
 
 func listColumns(db *sql.DB, table string) (map[string]bool, error) {
