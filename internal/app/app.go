@@ -386,11 +386,13 @@ func (a *App) loadFromStore(ctx context.Context) {
 		a.loadBuiltins()
 		return
 	}
-	if len(docs) == 0 {
+	if len(docs) == 0 || a.store.NeedsReseed() {
 		builtin := builtinRecipes()
 		docs = legacyToDocs(builtin)
 		if err := a.store.ReplaceAll(ctx, docs); err != nil {
 			log.Printf("écriture des recettes intégrées: %v", err)
+		} else if a.store.NeedsReseed() {
+			log.Printf("base reconstruite après migration, données intégrées réécrites")
 		}
 	}
 	a.mu.Lock()
