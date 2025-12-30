@@ -1,0 +1,29 @@
+{{define "refresh.gohtml"}}
+    {{template "base" .}}
+{{end}}
+
+{{define "content"}}
+    <div class="hero">
+        <div>
+            <div class="badge">Maintenance</div>
+            <h1>Actualiser les recettes</h1>
+            <p class="muted">Lance un scraping des recettes HelloFresh et met à jour la base locale.</p>
+        </div>
+        <form action="/refresh" method="post">
+            <button class="btn" type="submit">Lancer l'actualisation</button>
+        </form>
+    </div>
+
+    {{if eq .Status "queued"}}
+    <div class="section" style="background:#e8f5eb;border-color:#c8e6ce;">
+        <strong>Actualisation démarrée.</strong> Le scraping s'exécute en arrière-plan.
+    </div>
+    {{end}}
+
+    <div class="section">
+        <h2>État actuel</h2>
+        <p><strong>Recettes en base :</strong> {{.Count}}</p>
+        <p><strong>Dernière mise à jour :</strong> {{if .LastUpdated.IsZero}}n/a{{else}}{{.LastUpdated.Format "02/01/2006 15:04"}}{{end}}</p>
+    </div>
+{{end}}
+
