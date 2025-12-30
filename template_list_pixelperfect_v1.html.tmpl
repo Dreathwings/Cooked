@@ -7073,5 +7073,30 @@
     }
   });
 </script>
+<script>
+  (function () {
+    const modalName = "recipe-filters";
+    const modal = document.querySelector(`dialog[data-modal="${modalName}"]`);
+    if (!modal || typeof modal.showModal !== "function") return;
+
+    const openers = document.querySelectorAll("[data-flux-modal-trigger]");
+    openers.forEach((trigger) => {
+      trigger.addEventListener("click", function (event) {
+        const disabledButton = trigger.querySelector("button[disabled]");
+        if (disabledButton) return;
+        event.preventDefault();
+        modal.showModal();
+      });
+    });
+
+    const closers = modal.querySelectorAll("[data-flux-modal-close] button");
+    closers.forEach((btn) => {
+      btn.addEventListener("click", function (event) {
+        event.preventDefault();
+        modal.close();
+      });
+    });
+  })();
+</script>
 </body>
 </html>
