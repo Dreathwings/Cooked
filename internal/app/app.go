@@ -147,7 +147,6 @@ func (a *App) recipesHandler(w http.ResponseWriter, r *http.Request) {
 
 	a.mu.RLock()
 	allRecipes := append([]Recipe(nil), a.recipes...)
-	lastUpdated := a.lastUpdated
 	a.mu.RUnlock()
 
 	filtered := filterRecipes(allRecipes, params)
