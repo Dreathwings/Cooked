@@ -12,8 +12,10 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+const debugScrapURLs = true
+
 func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.Duration) ([]string, error) {
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 25 * time.Second}
 
 	seen := make(map[string]struct{}, 10000)
 	ordered := make([]string, 0, 10000)
@@ -23,25 +25,39 @@ func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.D
 		return nil, err
 	}
 
+	if debugScrapURLs {
+		log.Printf("[SCRAP] start base=%s maxPage=%d delay=%s timeout=%s", baseURL.String(), maxPage, delay, client.Timeout)
+	}
+
 	for p := 1; p <= maxPage; p++ {
 		pageURL := fmt.Sprintf("%s?page=%d", strings.TrimRight(base, "/"), p)
 
+		start := time.Now()
 		added, finalBase, err := scrapeOne(ctx, client, pageURL, seen, &ordered)
+		elapsed := time.Since(start)
+
 		if err != nil {
-			log.Printf("[page %d] error: %v", p, err)
+			log.Printf("[SCRAP][page %d] ERROR after %s: %v", p, elapsed, err)
 		} else {
 			baseURL = finalBase
+			log.Printf("[SCRAP][page %d] OK %s | +%d urls | total=%d", p, elapsed, added, len(ordered))
+
 			if added == 0 && p > 1 {
-				log.Printf("no recipes found on page %d -> stopping early", p)
+				log.Printf("[SCRAP] stop: no recipes found on page %d", p)
 				break
 			}
 		}
 
 		select {
 		case <-ctx.Done():
+			log.Printf("[SCRAP] cancelled: %v", ctx.Err())
 			return nil, ctx.Err()
 		case <-time.After(delay):
 		}
+	}
+
+	if debugScrapURLs {
+		log.Printf("[SCRAP] done: %d unique recipe URLs collected", len(ordered))
 	}
 
 	_ = baseURL
@@ -49,6 +65,10 @@ func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.D
 }
 
 func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen map[string]struct{}, ordered *[]string) (added int, effectiveBase *url.URL, err error) {
+	if debugScrapURLs {
+		log.Printf("[SCRAP] fetch %s", pageURL)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return 0, nil, err
@@ -74,6 +94,11 @@ func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen ma
 	}
 
 	added = 0
+	candidate := 0
+	skippedHost := 0
+	skippedParse := 0
+	dup := 0
+
 	doc.Find("a").Each(func(_ int, s *goquery.Selection) {
 		href, ok := s.Attr("href")
 		if !ok || href == "" {
@@ -83,27 +108,49 @@ func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen ma
 			return
 		}
 
+		candidate++
+
 		u, err := url.Parse(href)
 		if err != nil {
+			skippedParse++
+			if debugScrapURLs {
+				log.Printf("[SCRAP][skip] invalid url: %q", href)
+			}
 			return
 		}
 
 		abs := effectiveBase.ResolveReference(u)
-
-		// sécurité: comparer host normalisé
 		host := strings.TrimPrefix(abs.Host, "www.")
 		if host != "hfresh.info" {
+			skippedHost++
+			if debugScrapURLs {
+				log.Printf("[SCRAP][skip] foreign host: %s", abs.String())
+			}
 			return
 		}
 
 		finalURL := abs.String()
 		if _, exists := seen[finalURL]; exists {
+			dup++
+			if debugScrapURLs {
+				log.Printf("[SCRAP][dup] %s", finalURL)
+			}
 			return
 		}
+
 		seen[finalURL] = struct{}{}
 		*ordered = append(*ordered, finalURL)
 		added++
+
+		if debugScrapURLs {
+			log.Printf("[SCRAP][add #%d] %s", len(*ordered), finalURL)
+		}
 	})
+
+	if debugScrapURLs {
+		log.Printf("[SCRAP] page summary: candidates=%d added=%d dup=%d skippedHost=%d skippedParse=%d base=%s",
+			candidate, added, dup, skippedHost, skippedParse, effectiveBase.String())
+	}
 
 	return added, effectiveBase, nil
 }
