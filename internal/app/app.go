@@ -419,7 +419,7 @@ func (a *App) enqueueRefresh() {
 func (a *App) Refresh(ctx context.Context) error {
 	const baseURL = "https://hfresh.info/fr-FR"
 
-	urls, err := FetchRecipeURLs(ctx, baseURL, delay)
+	urls, err := FetchRecipeURLs(ctx, baseURL, 100*time.Millisecond)
 	if err != nil {
 		return err
 	}
