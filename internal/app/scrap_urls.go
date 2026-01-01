@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,8 +13,11 @@ import (
 )
 
 func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.Duration) ([]string, error) {
-	client := &http.Client{Timeout: 25 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
+
 	seen := make(map[string]struct{}, 10000)
+	ordered := make([]string, 0, 10000)
+
 	baseURL, err := url.Parse(base)
 	if err != nil {
 		return nil, err
@@ -23,7 +25,8 @@ func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.D
 
 	for p := 1; p <= maxPage; p++ {
 		pageURL := fmt.Sprintf("%s?page=%d", strings.TrimRight(base, "/"), p)
-		added, finalBase, err := scrapeOne(ctx, client, pageURL, seen)
+
+		added, finalBase, err := scrapeOne(ctx, client, pageURL, seen, &ordered)
 		if err != nil {
 			log.Printf("[page %d] error: %v", p, err)
 		} else {
@@ -41,16 +44,11 @@ func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.D
 		}
 	}
 
-	all := make([]string, 0, len(seen))
-	for u := range seen {
-		all = append(all, u)
-	}
-	sort.Strings(all)
 	_ = baseURL
-	return all, nil
+	return ordered, nil
 }
 
-func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen map[string]struct{}) (added int, effectiveBase *url.URL, err error) {
+func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen map[string]struct{}, ordered *[]string) (added int, effectiveBase *url.URL, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
 		return 0, nil, err
@@ -91,15 +89,21 @@ func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen ma
 		}
 
 		abs := effectiveBase.ResolveReference(u)
-		if abs.Host != "hfresh.info" {
+
+		// sécurité: comparer host normalisé
+		host := strings.TrimPrefix(abs.Host, "www.")
+		if host != "hfresh.info" {
 			return
 		}
 
 		finalURL := abs.String()
-		if _, exists := seen[finalURL]; !exists {
-			seen[finalURL] = struct{}{}
-			added++
+		if _, exists := seen[finalURL]; exists {
+			return
 		}
+		seen[finalURL] = struct{}{}
+		*ordered = append(*ordered, finalURL)
+		added++
 	})
+
 	return added, effectiveBase, nil
 }
