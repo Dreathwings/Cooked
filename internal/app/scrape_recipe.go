@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"sort"
@@ -14,6 +15,14 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 )
+
+const debugScrapeRecipe = true
+
+func dbg(format string, args ...any) {
+	if debugScrapeRecipe {
+		log.Printf(format, args...)
+	}
+}
 
 var (
 	spaceRe   = regexp.MustCompile(`\s+`)
@@ -28,22 +37,36 @@ func norm(s string) string {
 }
 
 func httpGetBytes(ctx context.Context, u string) ([]byte, error) {
+	start := time.Now()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "hfclone-scraper/1.3 (+server)")
+
 	c := &http.Client{Timeout: 30 * time.Second}
 	resp, err := c.Do(req)
 	if err != nil {
+		dbg("[RECIPE][http] ERROR url=%s after=%s err=%v", u, time.Since(start), err)
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		dbg("[RECIPE][http] BAD_STATUS url=%s status=%d after=%s body=%q", u, resp.StatusCode, time.Since(start), string(b))
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
 	}
-	return io.ReadAll(resp.Body)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		dbg("[RECIPE][http] READ_ERROR url=%s after=%s err=%v", u, time.Since(start), err)
+		return nil, err
+	}
+
+	dbg("[RECIPE][http] OK url=%s status=%d bytes=%d dur=%s", u, resp.StatusCode, len(body), time.Since(start))
+	return body, nil
 }
 
 func meta(doc *goquery.Document, key string) string {
@@ -296,15 +319,22 @@ func extractSteps(doc *goquery.Document) []ScrapedStep {
 }
 
 func ScrapeRecipe(ctx context.Context, recipeURL string) (RecipeDocument, error) {
+	start := time.Now()
+	dbg("[RECIPE] start url=%s", recipeURL)
+
 	raw, err := httpGetBytes(ctx, recipeURL)
 	if err != nil {
+		dbg("[RECIPE] FAIL url=%s dur=%s err=%v", recipeURL, time.Since(start), err)
 		return RecipeDocument{}, err
 	}
 
+	parseStart := time.Now()
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(raw))
 	if err != nil {
+		dbg("[RECIPE] PARSE_FAIL url=%s dur=%s err=%v", recipeURL, time.Since(parseStart), err)
 		return RecipeDocument{}, err
 	}
+	dbg("[RECIPE] parsed url=%s bytes=%d dur=%s", recipeURL, len(raw), time.Since(parseStart))
 
 	title := norm(doc.Find("title").First().Text())
 	recipeName := meta(doc, "og:title")
@@ -336,6 +366,24 @@ func ScrapeRecipe(ctx context.Context, recipeURL string) (RecipeDocument, error)
 	if r.URL == "" {
 		r.URL = recipeURL
 	}
+
+	// Résumé debug
+	dbg("[RECIPE] done url=%s dur=%s title=%q recipename=%q recipename_min=%q prep=%q diff=%q origin=%q tags=%d utensils=%d allergens=%d nutrition=%d ingredients=%d steps=%d",
+		recipeURL,
+		time.Since(start),
+		r.Title,
+		r.RecipeName,
+		r.RecipeNameMin,
+		r.PrepTime,
+		r.Difficulty,
+		r.Origin,
+		len(r.Tags),
+		len(r.Utensils),
+		len(r.Allergens),
+		len(r.Nutrition),
+		len(r.Ingredients1P),
+		len(r.Steps),
+	)
 
 	return r, nil
 }
