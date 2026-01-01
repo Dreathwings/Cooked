@@ -14,7 +14,7 @@ import (
 
 const debugScrapURLs = true
 
-func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.Duration) ([]string, error) {
+func FetchRecipeURLs(ctx context.Context, base string, delay time.Duration) ([]string, error) {
 	client := &http.Client{Timeout: 25 * time.Second}
 
 	seen := make(map[string]struct{}, 10000)
@@ -26,24 +26,29 @@ func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.D
 	}
 
 	if debugScrapURLs {
-		log.Printf("[SCRAP] start base=%s maxPage=%d delay=%s timeout=%s", baseURL.String(), maxPage, delay, client.Timeout)
+		log.Printf("[SCRAP] start base=%s delay=%s timeout=%s",
+			baseURL.String(), delay, client.Timeout)
 	}
 
-	for p := 1; p <= maxPage; p++ {
-		pageURL := fmt.Sprintf("%s?page=%d", strings.TrimRight(base, "/"), p)
+	page := 1
+
+	for {
+		pageURL := fmt.Sprintf("%s?page=%d", strings.TrimRight(base, "/"), page)
 
 		start := time.Now()
 		added, finalBase, err := scrapeOne(ctx, client, pageURL, seen, &ordered)
 		elapsed := time.Since(start)
 
 		if err != nil {
-			log.Printf("[SCRAP][page %d] ERROR after %s: %v", p, elapsed, err)
+			log.Printf("[SCRAP][page %d] ERROR after %s: %v", page, elapsed, err)
 		} else {
 			baseURL = finalBase
-			log.Printf("[SCRAP][page %d] OK %s | +%d urls | total=%d", p, elapsed, added, len(ordered))
+			log.Printf("[SCRAP][page %d] OK %s | +%d urls | total=%d",
+				page, elapsed, added, len(ordered))
 
-			if added == 0 && p > 1 {
-				log.Printf("[SCRAP] stop: no recipes found on page %d", p)
+			// 🔑 arrêt logique : plus aucune nouvelle recette
+			if added == 0 && page > 1 {
+				log.Printf("[SCRAP] stop: no new recipes found on page %d", page)
 				break
 			}
 		}
@@ -54,6 +59,8 @@ func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.D
 			return nil, ctx.Err()
 		case <-time.After(delay):
 		}
+
+		page++
 	}
 
 	if debugScrapURLs {
@@ -64,7 +71,14 @@ func FetchRecipeURLs(ctx context.Context, base string, maxPage int, delay time.D
 	return ordered, nil
 }
 
-func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen map[string]struct{}, ordered *[]string) (added int, effectiveBase *url.URL, err error) {
+func scrapeOne(
+	ctx context.Context,
+	client *http.Client,
+	pageURL string,
+	seen map[string]struct{},
+	ordered *[]string,
+) (added int, effectiveBase *url.URL, err error) {
+
 	if debugScrapURLs {
 		log.Printf("[SCRAP] fetch %s", pageURL)
 	}
@@ -73,6 +87,7 @@ func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen ma
 	if err != nil {
 		return 0, nil, err
 	}
+
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; hfresh-scraper/1.0)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 
@@ -95,9 +110,9 @@ func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen ma
 
 	added = 0
 	candidate := 0
+	dup := 0
 	skippedHost := 0
 	skippedParse := 0
-	dup := 0
 
 	doc.Find("a").Each(func(_ int, s *goquery.Selection) {
 		href, ok := s.Attr("href")
@@ -148,8 +163,10 @@ func scrapeOne(ctx context.Context, client *http.Client, pageURL string, seen ma
 	})
 
 	if debugScrapURLs {
-		log.Printf("[SCRAP] page summary: candidates=%d added=%d dup=%d skippedHost=%d skippedParse=%d base=%s",
-			candidate, added, dup, skippedHost, skippedParse, effectiveBase.String())
+		log.Printf(
+			"[SCRAP] page summary: candidates=%d added=%d dup=%d skippedHost=%d skippedParse=%d",
+			candidate, added, dup, skippedHost, skippedParse,
+		)
 	}
 
 	return added, effectiveBase, nil
