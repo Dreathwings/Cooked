@@ -7275,10 +7275,10 @@
     };
 
     const syncPillbox = (selector, param) => {
-      const root = document.querySelector(selector);
-      if (!root) return;
-      const values = selectedTexts(root);
-      updatePillboxLabel(root);
+      const roots = Array.from(document.querySelectorAll(selector));
+      if (roots.length === 0) return;
+      const values = selectedTexts(roots[0]);
+      roots.forEach(updatePillboxLabel);
       scheduleNavigate({ [param]: values.join(",") });
     };
 
@@ -7288,20 +7288,22 @@
         .split(",")
         .map((v) => normalize(v))
         .filter(Boolean);
-      const root = document.querySelector(selector);
-      if (!root || values.length === 0) return;
-      const options = root.querySelectorAll("ui-option");
-      options.forEach((opt) => {
-        const text = normalize(opt.textContent);
-        if (values.includes(text)) {
-          opt.setAttribute("data-selected", "");
-          opt.setAttribute("aria-selected", "true");
-        } else {
-          opt.removeAttribute("data-selected");
-          opt.removeAttribute("aria-selected");
-        }
+      const roots = Array.from(document.querySelectorAll(selector));
+      if (roots.length === 0 || values.length === 0) return;
+      roots.forEach((root) => {
+        const options = root.querySelectorAll("ui-option");
+        options.forEach((opt) => {
+          const text = normalize(opt.textContent);
+          if (values.includes(text)) {
+            opt.setAttribute("data-selected", "");
+            opt.setAttribute("aria-selected", "true");
+          } else {
+            opt.removeAttribute("data-selected");
+            opt.removeAttribute("aria-selected");
+          }
+        });
+        updatePillboxLabel(root);
       });
-      updatePillboxLabel(root);
     };
 
     document.addEventListener("click", (event) => {
@@ -7355,11 +7357,11 @@
     });
 
     const tagBoxSelector = '[wire\\:model\\.live="tagIds"]';
-    const getTagBox = () => document.querySelector(tagBoxSelector);
+    const getTagBoxes = () => Array.from(document.querySelectorAll(tagBoxSelector));
     const syncTag = () => {
-      const tagBox = getTagBox();
-      if (!tagBox) return;
-      const texts = selectedTexts(tagBox);
+      const tagBoxes = getTagBoxes();
+      if (tagBoxes.length === 0) return;
+      const texts = selectedTexts(tagBoxes[0]);
       scheduleNavigate({ tags: texts.join(",") });
     };
     document.addEventListener("click", (event) => {
@@ -7456,11 +7458,13 @@
 
     whenReady('[wire\\:model\\.live="sortBy"]', applyInitialSort);
     whenReady('ui-checkbox[value="1"]', applyInitialDifficulty);
-    whenReady(tagBoxSelector, (box) => {
+    whenReady(tagBoxSelector, () => {
       setPillboxSelections(tagBoxSelector, params.get("tags") || params.get("tag"));
-      observeSelection(box, () => {
-        updatePillboxLabel(box);
-        syncTag();
+      getTagBoxes().forEach((box) => {
+        observeSelection(box, () => {
+          updatePillboxLabel(box);
+          syncTag();
+        });
       });
     });
     const pillboxMappings = [
