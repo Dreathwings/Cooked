@@ -7146,6 +7146,7 @@
   })();
 
   (function () {
+    const normalize = (s) => (s || "").trim().toLowerCase();
     const setPageAndNavigate = (updates) => {
       const url = new URL(window.location.href);
       Object.entries(updates).forEach(([key, value]) => {
@@ -7171,6 +7172,15 @@
       "title-asc": "title-asc",
       "title-desc": "title-desc",
     };
+    const inverseSortMap = {
+      "title-asc": "hellofresh_created_at-asc",
+      "title-desc": "hellofresh_created_at-desc",
+      "prep-asc": "prep_time-asc",
+      "prep-desc": "prep_time-desc",
+      "difficulty-asc": "difficulty-asc",
+      "difficulty-desc": "difficulty-desc",
+    };
+    const params = new URL(window.location.href).searchParams;
 
     document.addEventListener("click", (event) => {
       const option = event.target.closest("ui-option");
@@ -7207,6 +7217,75 @@
         }
       });
     });
+
+    const tagBox = document.querySelector('[wire\\:model\\.live="tagIds"]');
+    const syncTag = () => {
+      if (!tagBox) return;
+      const selected = tagBox.querySelector("ui-option[data-selected]");
+      if (!selected) {
+        setPageAndNavigate({ tag: "" });
+        return;
+      }
+      const text = normalize(selected.textContent);
+      setPageAndNavigate({ tag: text });
+    };
+    document.addEventListener("click", (event) => {
+      const option = event.target.closest("ui-option");
+      if (!option) return;
+      if (option.closest('[wire\\:model\\.live="tagIds"]')) {
+        setTimeout(syncTag, 50);
+      }
+    });
+    document.addEventListener("keyup", (event) => {
+      const option = event.target.closest("ui-option");
+      if (!option) return;
+      if (option.closest('[wire\\:model\\.live="tagIds"]') && (event.key === "Enter" || event.key === " ")) {
+        setTimeout(syncTag, 50);
+      }
+    });
+
+    const applyInitialSort = () => {
+      const current = params.get("sort");
+      if (!current) return;
+      const optionValue = inverseSortMap[current];
+      if (!optionValue) return;
+      const currentOption = document.querySelector(`[wire\\:model\\.live="sortBy"] ui-option[value="${optionValue}"]`);
+      if (currentOption && !currentOption.hasAttribute("data-selected")) {
+        currentOption.setAttribute("data-selected", "");
+        currentOption.setAttribute("aria-selected", "true");
+      }
+    };
+
+    const applyInitialDifficulty = () => {
+      const value = params.get("difficulty");
+      if (!value) return;
+      const targetEntry = Object.entries(difficultyMap).find(([, label]) => normalize(label) === normalize(value));
+      if (!targetEntry) return;
+      const [key] = targetEntry;
+      difficultyBoxes.forEach((box) => {
+        if (box.getAttribute("value") === key) {
+          box.setAttribute("data-checked", "");
+          box.setAttribute("aria-checked", "true");
+        } else {
+          box.removeAttribute("data-checked");
+          box.setAttribute("aria-checked", "false");
+        }
+      });
+    };
+
+    const applyInitialTag = () => {
+      const value = normalize(params.get("tag"));
+      if (!value || !tagBox) return;
+      const options = Array.from(tagBox.querySelectorAll("ui-option"));
+      const target = options.find((opt) => normalize(opt.textContent) === value);
+      if (!target) return;
+      target.setAttribute("data-selected", "");
+      target.setAttribute("aria-selected", "true");
+    };
+
+    applyInitialSort();
+    applyInitialDifficulty();
+    applyInitialTag();
   })();
 </script>
 </body>
