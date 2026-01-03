@@ -7167,6 +7167,7 @@
       url.searchParams.set("page", "1");
       window.location.href = url.toString();
     };
+    const scheduleNavigate = debounce((updates) => setPageAndNavigate(updates), 600);
 
     const sortMap = {
       "hellofresh_created_at-desc": "title-desc",
@@ -7269,7 +7270,7 @@
       const root = document.querySelector(selector);
       if (!root) return;
       const values = selectedTexts(root);
-      setPageAndNavigate({ [param]: values.join(",") });
+      scheduleNavigate({ [param]: values.join(",") });
     };
 
     const setPillboxSelections = (selector, csv) => {
@@ -7353,7 +7354,7 @@
       const tagBox = getTagBox();
       if (!tagBox) return;
       const texts = selectedTexts(tagBox);
-      setPageAndNavigate({ tags: texts.join(",") });
+      scheduleNavigate({ tags: texts.join(",") });
     };
     document.addEventListener("click", (event) => {
       const option = event.target.closest("ui-option");
