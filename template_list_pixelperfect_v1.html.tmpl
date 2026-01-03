@@ -824,6 +824,82 @@
     <!--[if BLOCK]><![endif]-->      <div class="font-medium [:where(&amp;)]:text-zinc-800 [:where(&amp;)]:dark:text-white text-2xl [&amp;:has(+[data-flux-subheading])]:mb-2 [[data-flux-subheading]+&amp;]:mt-2 hidden sm:block" data-flux-heading>Recettes</div>
     <!--[if ENDBLOCK]><![endif]-->
     
+    <form method="GET" class="w-full mt-4 sm:mt-0">
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 items-end">
+        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+          Recherche
+          <input
+            type="search"
+            name="q"
+            value="{{ .Query }}"
+            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
+            placeholder="Rechercher une recette"
+          />
+        </label>
+
+        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+          Régime / tag principal
+          <select
+            name="diet"
+            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
+          >
+            <option value="">Tous</option>
+            {{ range .AvailableDiets }}
+              <option value="{{ . }}" {{ if eq $.Diet . }}selected{{ end }}>{{ . }}</option>
+            {{ end }}
+          </select>
+        </label>
+
+        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+          Difficulté
+          <select
+            name="difficulty"
+            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
+          >
+            <option value="">Toutes</option>
+            {{ range .AvailableDifficulties }}
+              <option value="{{ . }}" {{ if eq $.Difficulty . }}selected{{ end }}>{{ . }}</option>
+            {{ end }}
+          </select>
+        </label>
+
+        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+          Tag
+          <select
+            name="tag"
+            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
+          >
+            <option value="">Tous</option>
+            {{ range .AvailableTags }}
+              <option value="{{ . }}" {{ if eq $.Tag . }}selected{{ end }}>{{ . }}</option>
+            {{ end }}
+          </select>
+        </label>
+
+        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+          Trier par
+          <select
+            name="sort"
+            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
+          >
+            <option value="title-asc" {{ if eq .Sort "title-asc" }}selected{{ end }}>Titre (A → Z)</option>
+            <option value="title-desc" {{ if eq .Sort "title-desc" }}selected{{ end }}>Titre (Z → A)</option>
+            <option value="prep-asc" {{ if eq .Sort "prep-asc" }}selected{{ end }}>Temps de préparation (croissant)</option>
+            <option value="prep-desc" {{ if eq .Sort "prep-desc" }}selected{{ end }}>Temps de préparation (décroissant)</option>
+            <option value="difficulty-asc" {{ if eq .Sort "difficulty-asc" }}selected{{ end }}>Difficulté (plus facile)</option>
+            <option value="difficulty-desc" {{ if eq .Sort "difficulty-desc" }}selected{{ end }}>Difficulté (plus difficile)</option>
+          </select>
+        </label>
+
+        <div class="flex items-center gap-3 sm:col-span-2 lg:col-span-3 xl:col-span-5">
+          <button type="submit" class="h-10 px-4 rounded-md bg-(--color-accent) text-white font-semibold shadow-xs">
+            Appliquer les filtres
+          </button>
+          <a href="/recettes" class="text-sm text-zinc-600 dark:text-zinc-300 underline underline-offset-2">Réinitialiser</a>
+        </div>
+      </div>
+    </form>
+
     <div class="hidden sm:flex items-center gap-4">
       <ui-select
     clear="close esc select"
