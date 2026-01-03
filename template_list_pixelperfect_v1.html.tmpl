@@ -7181,6 +7181,15 @@
       "difficulty-desc": "difficulty-desc",
     };
     const params = new URL(window.location.href).searchParams;
+    const whenReady = (selector, cb, attempts = 20, delay = 150) => {
+      const el = typeof selector === "string" ? document.querySelector(selector) : selector;
+      if (el) {
+        cb(el);
+        return;
+      }
+      if (attempts <= 0) return;
+      setTimeout(() => whenReady(selector, cb, attempts - 1, delay), delay);
+    };
 
     document.addEventListener("click", (event) => {
       const option = event.target.closest("ui-option");
@@ -7194,13 +7203,13 @@
       setPageAndNavigate({ sort: mapped });
     });
 
-    const difficultyBoxes = Array.from(
-      document.querySelectorAll('ui-checkbox[value="1"], ui-checkbox[value="2"], ui-checkbox[value="3"]')
-    );
+    const difficultyBoxes = () =>
+      Array.from(document.querySelectorAll('ui-checkbox[value="1"], ui-checkbox[value="2"], ui-checkbox[value="3"]'));
     const difficultyMap = { "1": "facile", "2": "moyen", "3": "difficile" };
 
     const syncDifficulty = () => {
-      const selected = difficultyBoxes.filter((box) => box.hasAttribute("data-checked"));
+      const boxes = difficultyBoxes();
+      const selected = boxes.filter((box) => box.hasAttribute("data-checked"));
       if (selected.length === 1) {
         const value = selected[0].getAttribute("value");
         setPageAndNavigate({ difficulty: difficultyMap[value] || "" });
@@ -7209,17 +7218,21 @@
       }
     };
 
-    difficultyBoxes.forEach((box) => {
-      box.addEventListener("click", () => setTimeout(syncDifficulty, 50));
-      box.addEventListener("keyup", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          setTimeout(syncDifficulty, 50);
-        }
+    whenReady('ui-checkbox[value="1"]', () => {
+      difficultyBoxes().forEach((box) => {
+        box.addEventListener("click", () => setTimeout(syncDifficulty, 50));
+        box.addEventListener("keyup", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            setTimeout(syncDifficulty, 50);
+          }
+        });
       });
     });
 
-    const tagBox = document.querySelector('[wire\\:model\\.live="tagIds"]');
+    const tagBoxSelector = '[wire\\:model\\.live="tagIds"]';
+    const getTagBox = () => document.querySelector(tagBoxSelector);
     const syncTag = () => {
+      const tagBox = getTagBox();
       if (!tagBox) return;
       const selected = tagBox.querySelector("ui-option[data-selected]");
       if (!selected) {
@@ -7244,16 +7257,29 @@
       }
     });
 
+    const observeSelection = (target, cb) => {
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === "attributes" || mutation.type === "childList") {
+            cb();
+            break;
+          }
+        }
+      });
+      observer.observe(target, { attributes: true, childList: true, subtree: true });
+    };
+
     const applyInitialSort = () => {
       const current = params.get("sort");
       if (!current) return;
       const optionValue = inverseSortMap[current];
       if (!optionValue) return;
-      const currentOption = document.querySelector(`[wire\\:model\\.live="sortBy"] ui-option[value="${optionValue}"]`);
-      if (currentOption && !currentOption.hasAttribute("data-selected")) {
-        currentOption.setAttribute("data-selected", "");
-        currentOption.setAttribute("aria-selected", "true");
-      }
+      document
+        .querySelectorAll(`[wire\\:model\\.live="sortBy"] ui-option[value="${optionValue}"]`)
+        .forEach((currentOption) => {
+          currentOption.setAttribute("data-selected", "");
+          currentOption.setAttribute("aria-selected", "true");
+        });
     };
 
     const applyInitialDifficulty = () => {
@@ -7262,7 +7288,7 @@
       const targetEntry = Object.entries(difficultyMap).find(([, label]) => normalize(label) === normalize(value));
       if (!targetEntry) return;
       const [key] = targetEntry;
-      difficultyBoxes.forEach((box) => {
+      difficultyBoxes().forEach((box) => {
         if (box.getAttribute("value") === key) {
           box.setAttribute("data-checked", "");
           box.setAttribute("aria-checked", "true");
@@ -7275,6 +7301,7 @@
 
     const applyInitialTag = () => {
       const value = normalize(params.get("tag"));
+      const tagBox = getTagBox();
       if (!value || !tagBox) return;
       const options = Array.from(tagBox.querySelectorAll("ui-option"));
       const target = options.find((opt) => normalize(opt.textContent) === value);
@@ -7283,9 +7310,12 @@
       target.setAttribute("aria-selected", "true");
     };
 
-    applyInitialSort();
-    applyInitialDifficulty();
-    applyInitialTag();
+    whenReady('[wire\\:model\\.live="sortBy"]', applyInitialSort);
+    whenReady('ui-checkbox[value="1"]', applyInitialDifficulty);
+    whenReady(tagBoxSelector, (box) => {
+      applyInitialTag();
+      observeSelection(box, applyInitialTag);
+    });
   })();
 </script>
 </body>
