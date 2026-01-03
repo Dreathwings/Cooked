@@ -713,6 +713,14 @@ func sanitizeSort(raw string) string {
 	switch raw {
 	case "title-desc", "prep-asc", "prep-desc", "difficulty-asc", "difficulty-desc":
 		return raw
+	case "prep_time-asc":
+		return "prep-asc"
+	case "prep_time-desc":
+		return "prep-desc"
+	case "hellofresh_created_at-desc", "hellofresh_updated_at-desc":
+		return "title-desc"
+	case "hellofresh_created_at-asc", "hellofresh_updated_at-asc":
+		return "title-asc"
 	default:
 		return "title-asc"
 	}

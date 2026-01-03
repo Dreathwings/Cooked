@@ -1299,7 +1299,7 @@
       <div class="font-medium [:where(&amp;)]:text-zinc-800 [:where(&amp;)]:dark:text-white text-base [&amp;:has(+[data-flux-subheading])]:mb-2 [[data-flux-subheading]+&amp;]:mt-2" data-flux-heading>Filtrer les recettes</div>
     </div>
 
-    <form method="GET" action="/recettes" class="space-y-4">
+    <form method="GET" action="/recettes" class="space-y-4" data-server-filter-form>
       <div class="grid gap-3">
         <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
           Recherche
@@ -7218,6 +7218,54 @@
         event.preventDefault();
         modal.close();
       });
+    });
+  })();
+
+  (function () {
+    const form = document.querySelector("[data-server-filter-form]");
+    if (!form) return;
+
+    const sortField = form.querySelector('select[name="sort"]');
+
+    const submit = () => form.requestSubmit();
+    const debounce = (fn, delay = 250) => {
+      let t;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), delay);
+      };
+    };
+
+    form.querySelectorAll("select[name], input[name]").forEach((el) => {
+      const handler = el.tagName === "INPUT" ? "input" : "change";
+      const listener = el.tagName === "INPUT" ? debounce(submit, 350) : submit;
+      el.addEventListener(handler, listener);
+    });
+
+    const sortMap = {
+      "hellofresh_created_at-desc": "title-desc",
+      "hellofresh_created_at-asc": "title-asc",
+      "hellofresh_updated_at-desc": "title-desc",
+      "hellofresh_updated_at-asc": "title-asc",
+      "prep_time-asc": "prep-asc",
+      "prep_time-desc": "prep-desc",
+      "difficulty-asc": "difficulty-asc",
+      "difficulty-desc": "difficulty-desc",
+      "title-asc": "title-asc",
+      "title-desc": "title-desc",
+    };
+
+    document.addEventListener("click", (event) => {
+      const option = event.target.closest("ui-option");
+      if (!option) return;
+      const select = option.closest('[wire\\:model\\.live="sortBy"]');
+      if (!select || !sortField) return;
+
+      const rawValue = option.getAttribute("value");
+      if (!rawValue) return;
+      const mapped = sortMap[rawValue] || sortMap["title-asc"];
+      sortField.value = mapped;
+      submit();
     });
   })();
 </script>
