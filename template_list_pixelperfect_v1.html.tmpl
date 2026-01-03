@@ -7148,6 +7148,17 @@
   (function () {
     const normalize = (s) => (s || "").trim().toLowerCase();
     const raf = (fn) => window.requestAnimationFrame(fn);
+    let isHydrating = false;
+    const withHydration = (fn) => {
+      isHydrating = true;
+      try {
+        fn();
+      } finally {
+        setTimeout(() => {
+          isHydrating = false;
+        }, 0);
+      }
+    };
     const debounce = (fn, delay = 200) => {
       let t;
       return (...args) => {
@@ -7413,6 +7424,9 @@
           }
         }
         if (changed) {
+          if (isHydrating) {
+            return;
+          }
           cb();
         }
       });
@@ -7459,7 +7473,7 @@
     whenReady('[wire\\:model\\.live="sortBy"]', applyInitialSort);
     whenReady('ui-checkbox[value="1"]', applyInitialDifficulty);
     whenReady(tagBoxSelector, () => {
-      setPillboxSelections(tagBoxSelector, params.get("tags") || params.get("tag"));
+      withHydration(() => setPillboxSelections(tagBoxSelector, params.get("tags") || params.get("tag")));
       getTagBoxes().forEach((box) => {
         observeSelection(box, () => {
           updatePillboxLabel(box);
@@ -7477,12 +7491,20 @@
     ];
     pillboxMappings.forEach(({ selector, param }) => {
       whenReady(selector, (root) => {
-        setPillboxSelections(selector, params.get(param));
+        withHydration(() => setPillboxSelections(selector, params.get(param)));
         observeSelection(root, () => syncPillbox(selector, param));
       });
     });
 
-    const hydrateLater = debounce(() => raf(applyURLParamsToUI), 300);
+    const hydrateLater = debounce(
+      () =>
+        raf(() =>
+          withHydration(() => {
+            applyURLParamsToUI();
+          })
+        ),
+      300
+    );
     document.addEventListener("modal-show", hydrateLater);
     document.addEventListener("DOMContentLoaded", hydrateLater);
     window.addEventListener("load", hydrateLater);
