@@ -7147,6 +7147,14 @@
 
   (function () {
     const normalize = (s) => (s || "").trim().toLowerCase();
+    const raf = (fn) => window.requestAnimationFrame(fn);
+    const debounce = (fn, delay = 200) => {
+      let t;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), delay);
+      };
+    };
     const setPageAndNavigate = (updates) => {
       const url = new URL(window.location.href);
       Object.entries(updates).forEach(([key, value]) => {
@@ -7191,12 +7199,85 @@
       setTimeout(() => whenReady(selector, cb, attempts - 1, delay), delay);
     };
 
+    const setSelectedOption = (rootSelector, value, labelSelector) => {
+      const roots = document.querySelectorAll(rootSelector);
+      roots.forEach((root) => {
+        const options = root.querySelectorAll("ui-option");
+        options.forEach((opt) => opt.removeAttribute("data-selected"));
+        const target = root.querySelector(`ui-option[value="${value}"]`);
+        if (target) {
+          target.setAttribute("data-selected", "");
+          target.setAttribute("aria-selected", "true");
+          const label = labelSelector
+            ? root.closest(labelSelector)?.querySelector("ui-selected")
+            : root.closest("[data-flux-select]")?.querySelector("ui-selected");
+          if (label) {
+            label.textContent = target.textContent.trim();
+          }
+        }
+      });
+    };
+
+    const applyURLParamsToUI = () => {
+      const currentSort = params.get("sort");
+      const currentTag = normalize(params.get("tag"));
+      const currentDifficulty = normalize(params.get("difficulty"));
+      const sortValue = currentSort ? inverseSortMap[currentSort] : null;
+
+      if (sortValue) {
+        setSelectedOption('[wire\\:model\\.live="sortBy"]', sortValue);
+      }
+
+      const tagBox = getTagBox();
+      if (currentTag && tagBox) {
+        const options = Array.from(tagBox.querySelectorAll("ui-option"));
+        options.forEach((opt) => opt.removeAttribute("data-selected"));
+        const target = options.find((opt) => normalize(opt.textContent) === currentTag);
+        if (target) {
+          target.setAttribute("data-selected", "");
+          target.setAttribute("aria-selected", "true");
+          const label = tagBox
+            .closest("[data-flux-pillbox]")
+            ?.querySelector("[data-flux-pillbox-trigger] ui-selected");
+          if (label) label.textContent = target.textContent.trim();
+        }
+      }
+
+      if (currentDifficulty) {
+        const entry = Object.entries(difficultyMap).find(([, label]) => normalize(label) === currentDifficulty);
+        if (entry) {
+          const [key] = entry;
+          difficultyBoxes().forEach((box) => {
+            if (box.getAttribute("value") === key) {
+              box.setAttribute("data-checked", "");
+              box.setAttribute("aria-checked", "true");
+            } else {
+              box.removeAttribute("data-checked");
+              box.setAttribute("aria-checked", "false");
+            }
+          });
+        }
+      }
+    };
+
     document.addEventListener("click", (event) => {
       const option = event.target.closest("ui-option");
       if (!option) return;
       const select = option.closest('[wire\\:model\\.live="sortBy"]');
       if (!select) return;
 
+      const rawValue = option.getAttribute("value");
+      if (!rawValue) return;
+      const mapped = sortMap[rawValue] || sortMap["title-asc"];
+      setPageAndNavigate({ sort: mapped });
+    });
+
+    document.addEventListener("keyup", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const option = event.target.closest("ui-option");
+      if (!option) return;
+      const select = option.closest('[wire\\:model\\.live="sortBy"]');
+      if (!select) return;
       const rawValue = option.getAttribute("value");
       if (!rawValue) return;
       const mapped = sortMap[rawValue] || sortMap["title-asc"];
@@ -7331,6 +7412,12 @@
       applyInitialTag();
       observeSelection(box, applyInitialTag);
     });
+
+    const hydrateLater = debounce(() => raf(applyURLParamsToUI), 300);
+    document.addEventListener("modal-show", hydrateLater);
+    document.addEventListener("DOMContentLoaded", hydrateLater);
+    window.addEventListener("load", hydrateLater);
+    hydrateLater();
   })();
 </script>
 </body>
