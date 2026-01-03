@@ -1299,82 +1299,6 @@
       <div class="font-medium [:where(&amp;)]:text-zinc-800 [:where(&amp;)]:dark:text-white text-base [&amp;:has(+[data-flux-subheading])]:mb-2 [[data-flux-subheading]+&amp;]:mt-2" data-flux-heading>Filtrer les recettes</div>
     </div>
 
-    <form method="GET" action="/recettes" class="space-y-4" data-server-filter-form>
-      <div class="grid gap-3">
-        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
-          Recherche
-          <input
-            type="search"
-            name="q"
-            value="{{ .Query }}"
-            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
-            placeholder="Rechercher une recette"
-          />
-        </label>
-
-        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
-          Régime / tag principal
-          <select
-            name="diet"
-            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
-          >
-            <option value="">Tous</option>
-            {{ range .AvailableDiets }}
-              <option value="{{ . }}" {{ if eq $.Diet . }}selected{{ end }}>{{ . }}</option>
-            {{ end }}
-          </select>
-        </label>
-
-        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
-          Difficulté
-          <select
-            name="difficulty"
-            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
-          >
-            <option value="">Toutes</option>
-            {{ range .AvailableDifficulties }}
-              <option value="{{ . }}" {{ if eq $.Difficulty . }}selected{{ end }}>{{ . }}</option>
-            {{ end }}
-          </select>
-        </label>
-
-        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
-          Tag
-          <select
-            name="tag"
-            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
-          >
-            <option value="">Tous</option>
-            {{ range .AvailableTags }}
-              <option value="{{ . }}" {{ if eq $.Tag . }}selected{{ end }}>{{ . }}</option>
-            {{ end }}
-          </select>
-        </label>
-
-        <label class="flex flex-col gap-1 text-sm font-medium text-zinc-700 dark:text-zinc-200">
-          Trier par
-          <select
-            name="sort"
-            class="w-full border rounded-lg block disabled:shadow-none dark:shadow-none appearance-none text-base sm:text-sm py-2 h-10 leading-[1.375rem] ps-3 pe-3 bg-white dark:bg-white/10 text-zinc-700 dark:text-zinc-300 shadow-xs border-zinc-200 border-b-zinc-300/80 dark:border-white/10"
-          >
-            <option value="title-asc" {{ if eq .Sort "title-asc" }}selected{{ end }}>Titre (A → Z)</option>
-            <option value="title-desc" {{ if eq .Sort "title-desc" }}selected{{ end }}>Titre (Z → A)</option>
-            <option value="prep-asc" {{ if eq .Sort "prep-asc" }}selected{{ end }}>Temps de préparation (croissant)</option>
-            <option value="prep-desc" {{ if eq .Sort "prep-desc" }}selected{{ end }}>Temps de préparation (décroissant)</option>
-            <option value="difficulty-asc" {{ if eq .Sort "difficulty-asc" }}selected{{ end }}>Difficulté (plus facile)</option>
-            <option value="difficulty-desc" {{ if eq .Sort "difficulty-desc" }}selected{{ end }}>Difficulté (plus difficile)</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="flex items-center gap-3">
-        <button type="submit" class="h-10 px-4 rounded-md bg-(--color-accent) text-white font-semibold shadow-xs">
-          Appliquer les filtres
-        </button>
-        <a href="/recettes" class="text-sm text-zinc-600 dark:text-zinc-300 underline underline-offset-2">Réinitialiser</a>
-      </div>
-    </form>
-
     <!--[if BLOCK]><![endif]-->    <ui-field class="min-w-0 [&amp;:not(:has([data-flux-field])):has([data-flux-control][disabled])&gt;[data-flux-label]]:opacity-50 [&amp;:has(&gt;[data-flux-radio-group][disabled])&gt;[data-flux-label]]:opacity-50 [&amp;:has(&gt;[data-flux-checkbox-group][disabled])&gt;[data-flux-label]]:opacity-50 grid gap-x-3 gap-y-1.5 has-[[data-flux-label]~[data-flux-control]]:grid-cols-[1fr_auto] has-[[data-flux-control]~[data-flux-label]]:grid-cols-[auto_1fr] [&amp;&gt;[data-flux-control]~[data-flux-description]]:row-start-2 [&amp;&gt;[data-flux-control]~[data-flux-description]]:col-start-2 [&amp;&gt;[data-flux-control]~[data-flux-error]]:col-span-2 [&amp;&gt;[data-flux-control]~[data-flux-error]]:mt-1 [&amp;&gt;[data-flux-label]~[data-flux-control]]:row-start-1 [&amp;&gt;[data-flux-label]~[data-flux-control]]:col-start-2" data-flux-field>
     <ui-label class="inline-flex items-center text-sm font-medium  [:where(&amp;)]:text-zinc-800 [:where(&amp;)]:dark:text-white [&amp;:has([data-flux-label-trailing])]:flex" data-flux-label>
     Uniquement avec PDF
@@ -7222,25 +7146,18 @@
   })();
 
   (function () {
-    const form = document.querySelector("[data-server-filter-form]");
-    if (!form) return;
-
-    const sortField = form.querySelector('select[name="sort"]');
-
-    const submit = () => form.requestSubmit();
-    const debounce = (fn, delay = 250) => {
-      let t;
-      return (...args) => {
-        clearTimeout(t);
-        t = setTimeout(() => fn(...args), delay);
-      };
+    const setPageAndNavigate = (updates) => {
+      const url = new URL(window.location.href);
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value === null || value === undefined || value === "") {
+          url.searchParams.delete(key);
+        } else {
+          url.searchParams.set(key, value);
+        }
+      });
+      url.searchParams.set("page", "1");
+      window.location.href = url.toString();
     };
-
-    form.querySelectorAll("select[name], input[name]").forEach((el) => {
-      const handler = el.tagName === "INPUT" ? "input" : "change";
-      const listener = el.tagName === "INPUT" ? debounce(submit, 350) : submit;
-      el.addEventListener(handler, listener);
-    });
 
     const sortMap = {
       "hellofresh_created_at-desc": "title-desc",
@@ -7259,13 +7176,36 @@
       const option = event.target.closest("ui-option");
       if (!option) return;
       const select = option.closest('[wire\\:model\\.live="sortBy"]');
-      if (!select || !sortField) return;
+      if (!select) return;
 
       const rawValue = option.getAttribute("value");
       if (!rawValue) return;
       const mapped = sortMap[rawValue] || sortMap["title-asc"];
-      sortField.value = mapped;
-      submit();
+      setPageAndNavigate({ sort: mapped });
+    });
+
+    const difficultyBoxes = Array.from(
+      document.querySelectorAll('ui-checkbox[value="1"], ui-checkbox[value="2"], ui-checkbox[value="3"]')
+    );
+    const difficultyMap = { "1": "facile", "2": "moyen", "3": "difficile" };
+
+    const syncDifficulty = () => {
+      const selected = difficultyBoxes.filter((box) => box.hasAttribute("data-checked"));
+      if (selected.length === 1) {
+        const value = selected[0].getAttribute("value");
+        setPageAndNavigate({ difficulty: difficultyMap[value] || "" });
+      } else {
+        setPageAndNavigate({ difficulty: "" });
+      }
+    };
+
+    difficultyBoxes.forEach((box) => {
+      box.addEventListener("click", () => setTimeout(syncDifficulty, 50));
+      box.addEventListener("keyup", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          setTimeout(syncDifficulty, 50);
+        }
+      });
     });
   })();
 </script>
