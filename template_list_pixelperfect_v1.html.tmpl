@@ -7220,8 +7220,7 @@
 
     const applyURLParamsToUI = () => {
       const currentSort = params.get("sort");
-      const currentTag = normalize(params.get("tag"));
-      const currentTags = params.get("tags");
+      const currentTags = params.get("tags") || params.get("tag");
       const currentIngredients = params.get("ingredients");
       const currentExcludedIngredients = params.get("excluded_ingredients");
       const currentAllergens = params.get("allergens");
@@ -7232,21 +7231,6 @@
 
       if (sortValue) {
         setSelectedOption('[wire\\:model\\.live="sortBy"]', sortValue);
-      }
-
-      const tagBox = getTagBox();
-      if (currentTag && tagBox) {
-        const options = Array.from(tagBox.querySelectorAll("ui-option"));
-        options.forEach((opt) => opt.removeAttribute("data-selected"));
-        const target = options.find((opt) => normalize(opt.textContent) === currentTag);
-        if (target) {
-          target.setAttribute("data-selected", "");
-          target.setAttribute("aria-selected", "true");
-          const label = tagBox
-            .closest("[data-flux-pillbox]")
-            ?.querySelector("[data-flux-pillbox-trigger] ui-selected");
-          if (label) label.textContent = target.textContent.trim();
-        }
       }
 
       setPillboxSelections('[wire\\:model\\.live="tagIds"]', currentTags);
@@ -7454,7 +7438,7 @@
     };
 
     const applyInitialTag = () => {
-      const value = normalize(params.get("tag"));
+      const value = normalize(params.get("tags") || params.get("tag"));
       const tagBox = getTagBox();
       if (!value || !tagBox) return;
       const options = Array.from(tagBox.querySelectorAll("ui-option"));
@@ -7476,7 +7460,24 @@
     whenReady('ui-checkbox[value="1"]', applyInitialDifficulty);
     whenReady(tagBoxSelector, (box) => {
       applyInitialTag();
-      observeSelection(box, applyInitialTag);
+      observeSelection(box, () => {
+        applyInitialTag();
+        syncTag();
+      });
+    });
+    const pillboxMappings = [
+      { selector: '[wire\\:model\\.live="ingredientIds"]', param: "ingredients" },
+      { selector: '[wire\\:model\\.live="excludedIngredientIds"]', param: "excluded_ingredients" },
+      { selector: '[wire\\:model\\.live="excludedAllergenIds"]', param: "allergens" },
+      { selector: '[wire\\:model\\.live="excludedTagIds"]', param: "excluded_tags" },
+      { selector: '[wire\\:model\\.live="labelIds"]', param: "labels" },
+      { selector: '[wire\\:model\\.live="excludedLabelIds"]', param: "excluded_labels" },
+    ];
+    pillboxMappings.forEach(({ selector, param }) => {
+      whenReady(selector, (root) => {
+        setPillboxSelections(selector, params.get(param));
+        observeSelection(root, () => syncPillbox(selector, param));
+      });
     });
 
     const hydrateLater = debounce(() => raf(applyURLParamsToUI), 300);
