@@ -7274,12 +7274,19 @@
       if (!current) return;
       const optionValue = inverseSortMap[current];
       if (!optionValue) return;
-      document
-        .querySelectorAll(`[wire\\:model\\.live="sortBy"] ui-option[value="${optionValue}"]`)
-        .forEach((currentOption) => {
-          currentOption.setAttribute("data-selected", "");
-          currentOption.setAttribute("aria-selected", "true");
-        });
+      const options = document.querySelectorAll(`[wire\\:model\\.live="sortBy"] ui-option[value="${optionValue}"]`);
+      options.forEach((currentOption) => {
+        currentOption.parentElement
+          ?.querySelectorAll("ui-option[data-selected]")
+          ?.forEach((opt) => opt.removeAttribute("data-selected"));
+        currentOption.setAttribute("data-selected", "");
+        currentOption.setAttribute("aria-selected", "true");
+
+        const labelTarget = currentOption.closest("[data-flux-select]")?.querySelector("ui-selected");
+        if (labelTarget) {
+          labelTarget.textContent = currentOption.textContent.trim();
+        }
+      });
     };
 
     const applyInitialDifficulty = () => {
@@ -7306,8 +7313,16 @@
       const options = Array.from(tagBox.querySelectorAll("ui-option"));
       const target = options.find((opt) => normalize(opt.textContent) === value);
       if (!target) return;
+      options.forEach((opt) => opt.removeAttribute("data-selected"));
       target.setAttribute("data-selected", "");
       target.setAttribute("aria-selected", "true");
+
+      const pillboxLabel = tagBox
+        .closest("[data-flux-pillbox]")
+        ?.querySelector("[data-flux-pillbox-trigger] ui-selected");
+      if (pillboxLabel) {
+        pillboxLabel.textContent = target.textContent.trim();
+      }
     };
 
     whenReady('[wire\\:model\\.live="sortBy"]', applyInitialSort);
