@@ -7368,13 +7368,8 @@
     const syncTag = () => {
       const tagBox = getTagBox();
       if (!tagBox) return;
-      const selected = tagBox.querySelector("ui-option[data-selected]");
-      if (!selected) {
-        setPageAndNavigate({ tag: "" });
-        return;
-      }
-      const text = normalize(selected.textContent);
-      setPageAndNavigate({ tag: text });
+      const texts = selectedTexts(tagBox);
+      setPageAndNavigate({ tags: texts.join(",") });
     };
     document.addEventListener("click", (event) => {
       const option = event.target.closest("ui-option");
