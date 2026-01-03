@@ -7266,10 +7266,19 @@
         .filter(Boolean);
     };
 
+    const updatePillboxLabel = (root) => {
+      const label = root
+        ?.closest("[data-flux-pillbox]")
+        ?.querySelector("[data-flux-pillbox-trigger] ui-selected");
+      if (!label) return;
+      label.textContent = selectedTexts(root).join(", ");
+    };
+
     const syncPillbox = (selector, param) => {
       const root = document.querySelector(selector);
       if (!root) return;
       const values = selectedTexts(root);
+      updatePillboxLabel(root);
       scheduleNavigate({ [param]: values.join(",") });
     };
 
@@ -7292,10 +7301,7 @@
           opt.removeAttribute("aria-selected");
         }
       });
-      const label = root.closest("[data-flux-pillbox]")?.querySelector("[data-flux-pillbox-trigger] ui-selected");
-      if (label) {
-        label.textContent = values.join(", ");
-      }
+      updatePillboxLabel(root);
     };
 
     document.addEventListener("click", (event) => {
@@ -7390,15 +7396,25 @@
     });
 
     const observeSelection = (target, cb) => {
+      let last = selectedTexts(target).join(",");
       const observer = new MutationObserver((mutations) => {
+        let changed = false;
         for (const mutation of mutations) {
-          if (mutation.type === "attributes" || mutation.type === "childList") {
-            cb();
+          if (mutation.type === "attributes" && !["data-selected", "aria-selected"].includes(mutation.attributeName || "")) {
+            continue;
+          }
+          const next = selectedTexts(target).join(",");
+          if (next !== last) {
+            last = next;
+            changed = true;
             break;
           }
         }
+        if (changed) {
+          cb();
+        }
       });
-      observer.observe(target, { attributes: true, childList: true, subtree: true });
+      observer.observe(target, { attributes: true, attributeFilter: ["data-selected", "aria-selected"], subtree: true });
     };
 
     const applyInitialSort = () => {
@@ -7438,31 +7454,12 @@
       });
     };
 
-    const applyInitialTag = () => {
-      const value = normalize(params.get("tags") || params.get("tag"));
-      const tagBox = getTagBox();
-      if (!value || !tagBox) return;
-      const options = Array.from(tagBox.querySelectorAll("ui-option"));
-      const target = options.find((opt) => normalize(opt.textContent) === value);
-      if (!target) return;
-      options.forEach((opt) => opt.removeAttribute("data-selected"));
-      target.setAttribute("data-selected", "");
-      target.setAttribute("aria-selected", "true");
-
-      const pillboxLabel = tagBox
-        .closest("[data-flux-pillbox]")
-        ?.querySelector("[data-flux-pillbox-trigger] ui-selected");
-      if (pillboxLabel) {
-        pillboxLabel.textContent = target.textContent.trim();
-      }
-    };
-
     whenReady('[wire\\:model\\.live="sortBy"]', applyInitialSort);
     whenReady('ui-checkbox[value="1"]', applyInitialDifficulty);
     whenReady(tagBoxSelector, (box) => {
-      applyInitialTag();
+      setPillboxSelections(tagBoxSelector, params.get("tags") || params.get("tag"));
       observeSelection(box, () => {
-        applyInitialTag();
+        updatePillboxLabel(box);
         syncTag();
       });
     });
