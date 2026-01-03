@@ -7221,6 +7221,12 @@
     const applyURLParamsToUI = () => {
       const currentSort = params.get("sort");
       const currentTag = normalize(params.get("tag"));
+      const currentTags = params.get("tags");
+      const currentIngredients = params.get("ingredients");
+      const currentExcludedIngredients = params.get("excluded_ingredients");
+      const currentAllergens = params.get("allergens");
+      const currentLabels = params.get("labels");
+      const currentExcludedLabels = params.get("excluded_labels");
       const currentDifficulty = normalize(params.get("difficulty"));
       const sortValue = currentSort ? inverseSortMap[currentSort] : null;
 
@@ -7243,6 +7249,14 @@
         }
       }
 
+      setPillboxSelections('[wire\\:model\\.live="tagIds"]', currentTags);
+      setPillboxSelections('[wire\\:model\\.live="excludedTagIds"]', params.get("excluded_tags"));
+      setPillboxSelections('[wire\\:model\\.live="ingredientIds"]', currentIngredients);
+      setPillboxSelections('[wire\\:model\\.live="excludedIngredientIds"]', currentExcludedIngredients);
+      setPillboxSelections('[wire\\:model\\.live="excludedAllergenIds"]', currentAllergens);
+      setPillboxSelections('[wire\\:model\\.live="labelIds"]', currentLabels);
+      setPillboxSelections('[wire\\:model\\.live="excludedLabelIds"]', currentExcludedLabels);
+
       if (currentDifficulty) {
         const entry = Object.entries(difficultyMap).find(([, label]) => normalize(label) === currentDifficulty);
         if (entry) {
@@ -7257,6 +7271,45 @@
             }
           });
         }
+      }
+    };
+
+    const selectedTexts = (root) => {
+      const options = root?.querySelectorAll("ui-option[data-selected]") || [];
+      return Array.from(options)
+        .map((opt) => opt.textContent.trim())
+        .filter(Boolean);
+    };
+
+    const syncPillbox = (selector, param) => {
+      const root = document.querySelector(selector);
+      if (!root) return;
+      const values = selectedTexts(root);
+      setPageAndNavigate({ [param]: values.join(",") });
+    };
+
+    const setPillboxSelections = (selector, csv) => {
+      if (!csv) return;
+      const values = csv
+        .split(",")
+        .map((v) => normalize(v))
+        .filter(Boolean);
+      const root = document.querySelector(selector);
+      if (!root || values.length === 0) return;
+      const options = root.querySelectorAll("ui-option");
+      options.forEach((opt) => {
+        const text = normalize(opt.textContent);
+        if (values.includes(text)) {
+          opt.setAttribute("data-selected", "");
+          opt.setAttribute("aria-selected", "true");
+        } else {
+          opt.removeAttribute("data-selected");
+          opt.removeAttribute("aria-selected");
+        }
+      });
+      const label = root.closest("[data-flux-pillbox]")?.querySelector("[data-flux-pillbox-trigger] ui-selected");
+      if (label) {
+        label.textContent = values.join(", ");
       }
     };
 
@@ -7328,6 +7381,24 @@
       if (!option) return;
       if (option.closest('[wire\\:model\\.live="tagIds"]')) {
         setTimeout(syncTag, 50);
+      }
+      if (option.closest('[wire\\:model\\.live="ingredientIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="ingredientIds"]', "ingredients"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="excludedIngredientIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="excludedIngredientIds"]', "excluded_ingredients"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="excludedAllergenIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="excludedAllergenIds"]', "allergens"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="excludedTagIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="excludedTagIds"]', "excluded_tags"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="labelIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="labelIds"]', "labels"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="excludedLabelIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="excludedLabelIds"]', "excluded_labels"), 50);
       }
     });
     document.addEventListener("keyup", (event) => {
