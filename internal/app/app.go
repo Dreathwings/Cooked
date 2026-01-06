@@ -39,6 +39,7 @@ type Recipe struct {
 	Difficulty  string
 	Cuisine     string
 	Tags        []string
+	Allergens   []string
 	Ingredients []Ingredient
 	Steps       []string
 	Servings    int
@@ -564,6 +565,7 @@ func docsToLegacy(docs []RecipeDocument) []Recipe {
 			PrepTime:    doc.PrepTime,
 			Difficulty:  doc.Difficulty,
 			Tags:        doc.Tags,
+			Allergens:   doc.Allergens,
 			Ingredients: convertIngredients(doc.Ingredients1P),
 			Steps:       convertSteps(doc.Steps),
 			Servings:    2,
@@ -586,6 +588,7 @@ func legacyToDocs(recipes []Recipe) []RecipeDocument {
 			PrepTime:      r.PrepTime,
 			Difficulty:    r.Difficulty,
 			Tags:          r.Tags,
+			Allergens:     r.Allergens,
 			Ingredients1P: convertIngredientsToScraped(r.Ingredients),
 			Steps:         convertStepsToScraped(r.Steps),
 		})
@@ -645,6 +648,13 @@ func filterRecipes(recipes []Recipe, params url.Values) []Recipe {
 	diet := strings.ToLower(strings.TrimSpace(params.Get("diet")))
 	diff := strings.ToLower(strings.TrimSpace(params.Get("difficulty")))
 	tag := strings.ToLower(strings.TrimSpace(params.Get("tag")))
+	includeTags := splitAndClean(params.Get("tags"))
+	excludeTags := splitAndClean(params.Get("excluded_tags"))
+	includeIngredients := splitAndClean(params.Get("ingredients"))
+	excludeIngredients := splitAndClean(params.Get("excluded_ingredients"))
+	excludeAllergens := splitAndClean(params.Get("allergens"))
+	includeLabels := splitAndClean(params.Get("labels"))
+	excludeLabels := splitAndClean(params.Get("excluded_labels"))
 
 	var filtered []Recipe
 	for _, recipe := range recipes {
@@ -660,9 +670,81 @@ func filterRecipes(recipes []Recipe, params url.Values) []Recipe {
 		if tag != "" && !containsFold(recipe.Tags, tag) {
 			continue
 		}
+		if len(includeTags) > 0 && !containsAnyFold(recipe.Tags, includeTags) {
+			continue
+		}
+		if len(excludeTags) > 0 && containsAnyFold(recipe.Tags, excludeTags) {
+			continue
+		}
+		if len(includeLabels) > 0 && !containsAnyFold(recipe.Tags, includeLabels) {
+			continue
+		}
+		if len(excludeLabels) > 0 && containsAnyFold(recipe.Tags, excludeLabels) {
+			continue
+		}
+		if len(includeIngredients) > 0 && !ingredientsContainAll(recipe.Ingredients, includeIngredients) {
+			continue
+		}
+		if len(excludeIngredients) > 0 && ingredientsContainAny(recipe.Ingredients, excludeIngredients) {
+			continue
+		}
+		if len(excludeAllergens) > 0 && containsAnyFold(recipe.Allergens, excludeAllergens) {
+			continue
+		}
 		filtered = append(filtered, recipe)
 	}
 	return filtered
+}
+
+func splitAndClean(raw string) []string {
+	parts := strings.Split(raw, ",")
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func containsAnyFold(haystack []string, needles []string) bool {
+	for _, h := range haystack {
+		for _, n := range needles {
+			if strings.EqualFold(strings.TrimSpace(h), strings.TrimSpace(n)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ingredientsContainAny(ingredients []Ingredient, needles []string) bool {
+	for _, ing := range ingredients {
+		for _, n := range needles {
+			if strings.Contains(strings.ToLower(ing.Name), strings.ToLower(strings.TrimSpace(n))) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ingredientsContainAll(ingredients []Ingredient, needles []string) bool {
+	for _, n := range needles {
+		found := false
+		for _, ing := range ingredients {
+			if strings.Contains(strings.ToLower(ing.Name), strings.ToLower(strings.TrimSpace(n))) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func collectFacets(recipes []Recipe) (diets, tags, difficulties []string) {
@@ -713,6 +795,14 @@ func sanitizeSort(raw string) string {
 	switch raw {
 	case "title-desc", "prep-asc", "prep-desc", "difficulty-asc", "difficulty-desc":
 		return raw
+	case "prep_time-asc":
+		return "prep-asc"
+	case "prep_time-desc":
+		return "prep-desc"
+	case "hellofresh_created_at-desc", "hellofresh_updated_at-desc":
+		return "title-desc"
+	case "hellofresh_created_at-asc", "hellofresh_updated_at-asc":
+		return "title-asc"
 	default:
 		return "title-asc"
 	}

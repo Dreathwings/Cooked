@@ -1290,7 +1290,7 @@
                 if ($event.detail.name === 'recipe-filters' && ($event.detail.scope === 'nPwWojZaWxlSmlv3eakr')) $el.showModal();
                 if ($event.detail.name === 'recipe-filters' && (! $event.detail.scope)) $el.showModal();
             "
-            x-on:modal-close.document="
+        x-on:modal-close.document="
                 if ($event.detail.name === 'recipe-filters' && ($event.detail.scope === 'nPwWojZaWxlSmlv3eakr')) $el.close();
                 if (! $event.detail.name || ($event.detail.name === 'recipe-filters' && (! $event.detail.scope))) $el.close();
             "
@@ -7143,6 +7143,372 @@
         modal.close();
       });
     });
+  })();
+
+  (function () {
+    const normalize = (s) => (s || "").trim().toLowerCase();
+    const raf = (fn) => window.requestAnimationFrame(fn);
+    let isHydrating = false;
+    const withHydration = (fn) => {
+      isHydrating = true;
+      try {
+        fn();
+      } finally {
+        setTimeout(() => {
+          isHydrating = false;
+        }, 0);
+      }
+    };
+    const debounce = (fn, delay = 200) => {
+      let t;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), delay);
+      };
+    };
+    const setPageAndNavigate = (updates) => {
+      const url = new URL(window.location.href);
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value === null || value === undefined || value === "") {
+          url.searchParams.delete(key);
+        } else {
+          url.searchParams.set(key, value);
+        }
+      });
+      url.searchParams.set("page", "1");
+      window.location.href = url.toString();
+    };
+    const scheduleNavigate = debounce((updates) => setPageAndNavigate(updates), 600);
+
+    const sortMap = {
+      "hellofresh_created_at-desc": "title-desc",
+      "hellofresh_created_at-asc": "title-asc",
+      "hellofresh_updated_at-desc": "title-desc",
+      "hellofresh_updated_at-asc": "title-asc",
+      "prep_time-asc": "prep-asc",
+      "prep_time-desc": "prep-desc",
+      "difficulty-asc": "difficulty-asc",
+      "difficulty-desc": "difficulty-desc",
+      "title-asc": "title-asc",
+      "title-desc": "title-desc",
+    };
+    const inverseSortMap = {
+      "title-asc": "hellofresh_created_at-asc",
+      "title-desc": "hellofresh_created_at-desc",
+      "prep-asc": "prep_time-asc",
+      "prep-desc": "prep_time-desc",
+      "difficulty-asc": "difficulty-asc",
+      "difficulty-desc": "difficulty-desc",
+    };
+    const params = new URL(window.location.href).searchParams;
+    const whenReady = (selector, cb, attempts = 20, delay = 150) => {
+      const el = typeof selector === "string" ? document.querySelector(selector) : selector;
+      if (el) {
+        cb(el);
+        return;
+      }
+      if (attempts <= 0) return;
+      setTimeout(() => whenReady(selector, cb, attempts - 1, delay), delay);
+    };
+
+    const setSelectedOption = (rootSelector, value, labelSelector) => {
+      const roots = document.querySelectorAll(rootSelector);
+      roots.forEach((root) => {
+        const options = root.querySelectorAll("ui-option");
+        options.forEach((opt) => opt.removeAttribute("data-selected"));
+        const target = root.querySelector(`ui-option[value="${value}"]`);
+        if (target) {
+          target.setAttribute("data-selected", "");
+          target.setAttribute("aria-selected", "true");
+          const label = labelSelector
+            ? root.closest(labelSelector)?.querySelector("ui-selected")
+            : root.closest("[data-flux-select]")?.querySelector("ui-selected");
+          if (label) {
+            label.textContent = target.textContent.trim();
+          }
+        }
+      });
+    };
+
+    const applyURLParamsToUI = () => {
+      const currentSort = params.get("sort");
+      const currentTags = params.get("tags") || params.get("tag");
+      const currentIngredients = params.get("ingredients");
+      const currentExcludedIngredients = params.get("excluded_ingredients");
+      const currentAllergens = params.get("allergens");
+      const currentLabels = params.get("labels");
+      const currentExcludedLabels = params.get("excluded_labels");
+      const currentDifficulty = normalize(params.get("difficulty"));
+      const sortValue = currentSort ? inverseSortMap[currentSort] : null;
+
+      if (sortValue) {
+        setSelectedOption('[wire\\:model\\.live="sortBy"]', sortValue);
+      }
+
+      setPillboxSelections('[wire\\:model\\.live="tagIds"]', currentTags);
+      setPillboxSelections('[wire\\:model\\.live="excludedTagIds"]', params.get("excluded_tags"));
+      setPillboxSelections('[wire\\:model\\.live="ingredientIds"]', currentIngredients);
+      setPillboxSelections('[wire\\:model\\.live="excludedIngredientIds"]', currentExcludedIngredients);
+      setPillboxSelections('[wire\\:model\\.live="excludedAllergenIds"]', currentAllergens);
+      setPillboxSelections('[wire\\:model\\.live="labelIds"]', currentLabels);
+      setPillboxSelections('[wire\\:model\\.live="excludedLabelIds"]', currentExcludedLabels);
+
+      if (currentDifficulty) {
+        const entry = Object.entries(difficultyMap).find(([, label]) => normalize(label) === currentDifficulty);
+        if (entry) {
+          const [key] = entry;
+          difficultyBoxes().forEach((box) => {
+            if (box.getAttribute("value") === key) {
+              box.setAttribute("data-checked", "");
+              box.setAttribute("aria-checked", "true");
+            } else {
+              box.removeAttribute("data-checked");
+              box.setAttribute("aria-checked", "false");
+            }
+          });
+        }
+      }
+    };
+
+    const selectedTexts = (root) => {
+      const options = root?.querySelectorAll("ui-option[data-selected]") || [];
+      return Array.from(options)
+        .map((opt) => opt.textContent.trim())
+        .filter(Boolean);
+    };
+
+    const updatePillboxLabel = (root) => {
+      const label = root
+        ?.closest("[data-flux-pillbox]")
+        ?.querySelector("[data-flux-pillbox-trigger] ui-selected");
+      if (!label) return;
+      label.textContent = selectedTexts(root).join(", ");
+    };
+
+    const syncPillbox = (selector, param) => {
+      const roots = Array.from(document.querySelectorAll(selector));
+      if (roots.length === 0) return;
+      const values = selectedTexts(roots[0]);
+      roots.forEach(updatePillboxLabel);
+      scheduleNavigate({ [param]: values.join(",") });
+    };
+
+    const setPillboxSelections = (selector, csv) => {
+      if (!csv) return;
+      const values = csv
+        .split(",")
+        .map((v) => normalize(v))
+        .filter(Boolean);
+      const roots = Array.from(document.querySelectorAll(selector));
+      if (roots.length === 0 || values.length === 0) return;
+      roots.forEach((root) => {
+        const options = root.querySelectorAll("ui-option");
+        options.forEach((opt) => {
+          const text = normalize(opt.textContent);
+          if (values.includes(text)) {
+            opt.setAttribute("data-selected", "");
+            opt.setAttribute("aria-selected", "true");
+          } else {
+            opt.removeAttribute("data-selected");
+            opt.removeAttribute("aria-selected");
+          }
+        });
+        updatePillboxLabel(root);
+      });
+    };
+
+    document.addEventListener("click", (event) => {
+      const option = event.target.closest("ui-option");
+      if (!option) return;
+      const select = option.closest('[wire\\:model\\.live="sortBy"]');
+      if (!select) return;
+
+      const rawValue = option.getAttribute("value");
+      if (!rawValue) return;
+      const mapped = sortMap[rawValue] || sortMap["title-asc"];
+      setPageAndNavigate({ sort: mapped });
+    });
+
+    document.addEventListener("keyup", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const option = event.target.closest("ui-option");
+      if (!option) return;
+      const select = option.closest('[wire\\:model\\.live="sortBy"]');
+      if (!select) return;
+      const rawValue = option.getAttribute("value");
+      if (!rawValue) return;
+      const mapped = sortMap[rawValue] || sortMap["title-asc"];
+      setPageAndNavigate({ sort: mapped });
+    });
+
+    const difficultyBoxes = () =>
+      Array.from(document.querySelectorAll('ui-checkbox[value="1"], ui-checkbox[value="2"], ui-checkbox[value="3"]'));
+    const difficultyMap = { "1": "facile", "2": "moyen", "3": "difficile" };
+
+    const syncDifficulty = () => {
+      const boxes = difficultyBoxes();
+      const selected = boxes.filter((box) => box.hasAttribute("data-checked"));
+      if (selected.length === 1) {
+        const value = selected[0].getAttribute("value");
+        setPageAndNavigate({ difficulty: difficultyMap[value] || "" });
+      } else {
+        setPageAndNavigate({ difficulty: "" });
+      }
+    };
+
+    whenReady('ui-checkbox[value="1"]', () => {
+      difficultyBoxes().forEach((box) => {
+        box.addEventListener("click", () => setTimeout(syncDifficulty, 50));
+        box.addEventListener("keyup", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            setTimeout(syncDifficulty, 50);
+          }
+        });
+      });
+    });
+
+    const tagBoxSelector = '[wire\\:model\\.live="tagIds"]';
+    const getTagBoxes = () => Array.from(document.querySelectorAll(tagBoxSelector));
+    const syncTag = () => {
+      const tagBoxes = getTagBoxes();
+      if (tagBoxes.length === 0) return;
+      const texts = selectedTexts(tagBoxes[0]);
+      scheduleNavigate({ tags: texts.join(",") });
+    };
+    document.addEventListener("click", (event) => {
+      const option = event.target.closest("ui-option");
+      if (!option) return;
+      if (option.closest('[wire\\:model\\.live="tagIds"]')) {
+        setTimeout(syncTag, 50);
+      }
+      if (option.closest('[wire\\:model\\.live="ingredientIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="ingredientIds"]', "ingredients"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="excludedIngredientIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="excludedIngredientIds"]', "excluded_ingredients"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="excludedAllergenIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="excludedAllergenIds"]', "allergens"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="excludedTagIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="excludedTagIds"]', "excluded_tags"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="labelIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="labelIds"]', "labels"), 50);
+      }
+      if (option.closest('[wire\\:model\\.live="excludedLabelIds"]')) {
+        setTimeout(() => syncPillbox('[wire\\:model\\.live="excludedLabelIds"]', "excluded_labels"), 50);
+      }
+    });
+    document.addEventListener("keyup", (event) => {
+      const option = event.target.closest("ui-option");
+      if (!option) return;
+      if (option.closest('[wire\\:model\\.live="tagIds"]') && (event.key === "Enter" || event.key === " ")) {
+        setTimeout(syncTag, 50);
+      }
+    });
+
+    const observeSelection = (target, cb) => {
+      let last = selectedTexts(target).join(",");
+      const observer = new MutationObserver((mutations) => {
+        let changed = false;
+        for (const mutation of mutations) {
+          if (mutation.type === "attributes" && !["data-selected", "aria-selected"].includes(mutation.attributeName || "")) {
+            continue;
+          }
+          const next = selectedTexts(target).join(",");
+          if (next !== last) {
+            last = next;
+            changed = true;
+            break;
+          }
+        }
+        if (changed) {
+          if (isHydrating) {
+            return;
+          }
+          cb();
+        }
+      });
+      observer.observe(target, { attributes: true, attributeFilter: ["data-selected", "aria-selected"], subtree: true });
+    };
+
+    const applyInitialSort = () => {
+      const current = params.get("sort");
+      if (!current) return;
+      const optionValue = inverseSortMap[current];
+      if (!optionValue) return;
+      const options = document.querySelectorAll(`[wire\\:model\\.live="sortBy"] ui-option[value="${optionValue}"]`);
+      options.forEach((currentOption) => {
+        currentOption.parentElement
+          ?.querySelectorAll("ui-option[data-selected]")
+          ?.forEach((opt) => opt.removeAttribute("data-selected"));
+        currentOption.setAttribute("data-selected", "");
+        currentOption.setAttribute("aria-selected", "true");
+
+        const labelTarget = currentOption.closest("[data-flux-select]")?.querySelector("ui-selected");
+        if (labelTarget) {
+          labelTarget.textContent = currentOption.textContent.trim();
+        }
+      });
+    };
+
+    const applyInitialDifficulty = () => {
+      const value = params.get("difficulty");
+      if (!value) return;
+      const targetEntry = Object.entries(difficultyMap).find(([, label]) => normalize(label) === normalize(value));
+      if (!targetEntry) return;
+      const [key] = targetEntry;
+      difficultyBoxes().forEach((box) => {
+        if (box.getAttribute("value") === key) {
+          box.setAttribute("data-checked", "");
+          box.setAttribute("aria-checked", "true");
+        } else {
+          box.removeAttribute("data-checked");
+          box.setAttribute("aria-checked", "false");
+        }
+      });
+    };
+
+    whenReady('[wire\\:model\\.live="sortBy"]', applyInitialSort);
+    whenReady('ui-checkbox[value="1"]', applyInitialDifficulty);
+    whenReady(tagBoxSelector, () => {
+      withHydration(() => setPillboxSelections(tagBoxSelector, params.get("tags") || params.get("tag")));
+      getTagBoxes().forEach((box) => {
+        observeSelection(box, () => {
+          updatePillboxLabel(box);
+          syncTag();
+        });
+      });
+    });
+    const pillboxMappings = [
+      { selector: '[wire\\:model\\.live="ingredientIds"]', param: "ingredients" },
+      { selector: '[wire\\:model\\.live="excludedIngredientIds"]', param: "excluded_ingredients" },
+      { selector: '[wire\\:model\\.live="excludedAllergenIds"]', param: "allergens" },
+      { selector: '[wire\\:model\\.live="excludedTagIds"]', param: "excluded_tags" },
+      { selector: '[wire\\:model\\.live="labelIds"]', param: "labels" },
+      { selector: '[wire\\:model\\.live="excludedLabelIds"]', param: "excluded_labels" },
+    ];
+    pillboxMappings.forEach(({ selector, param }) => {
+      whenReady(selector, (root) => {
+        withHydration(() => setPillboxSelections(selector, params.get(param)));
+        observeSelection(root, () => syncPillbox(selector, param));
+      });
+    });
+
+    const hydrateLater = debounce(
+      () =>
+        raf(() =>
+          withHydration(() => {
+            applyURLParamsToUI();
+          })
+        ),
+      300
+    );
+    document.addEventListener("modal-show", hydrateLater);
+    document.addEventListener("DOMContentLoaded", hydrateLater);
+    window.addEventListener("load", hydrateLater);
+    hydrateLater();
   })();
 </script>
 </body>
